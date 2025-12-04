@@ -211,7 +211,7 @@ export default function VolatilityChart({
     ctx.fillText('LIVE', PADDING.left, 28);
 
     // Draw live indicator dot
-    ctx.fillStyle = '#22c55e';
+    ctx.fillStyle = '#38bdf8';
     ctx.beginPath();
     ctx.arc(PADDING.left + 42, 24, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -325,7 +325,7 @@ export default function VolatilityChart({
       ctx.fillText(shortSymbol, champX, trackY);
 
       // Draw volatility on right
-      ctx.fillStyle = volatility >= 0 ? '#22c55e' : '#ef4444';
+      ctx.fillStyle = volatility >= 0 ? '#38bdf8' : '#ef4444';
       ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(
@@ -337,7 +337,7 @@ export default function VolatilityChart({
       // Draw rank change indicator
       if (viewMode === 'live' && champ.previousRank !== champ.rank) {
         const change = champ.previousRank - champ.rank;
-        ctx.fillStyle = change > 0 ? '#22c55e' : '#ef4444';
+        ctx.fillStyle = change > 0 ? '#38bdf8' : '#ef4444';
         ctx.font = '9px system-ui, sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText(change > 0 ? `▲${change}` : `▼${Math.abs(change)}`, width - 75, trackY + 1);
@@ -467,7 +467,7 @@ export default function VolatilityChart({
             </span>
             <span className="text-white text-xs font-medium">{champ.symbol}</span>
             <span className={`text-xs font-bold ml-auto ${
-              champ.currentVolatility >= 0 ? 'text-green-400' : 'text-red-400'
+              champ.currentVolatility >= 0 ? 'text-sky-400' : 'text-red-400'
             }`}>
               {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(1)}%
             </span>

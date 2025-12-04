@@ -162,12 +162,12 @@ function ArenaDetailPage() {
   const getStatusBadge = (status: number, statusLabel: string) => {
     const styles: Record<number, string> = {
       [ArenaStatus.Uninitialized]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
-      [ArenaStatus.Waiting]: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+      [ArenaStatus.Waiting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
       [ArenaStatus.Ready]: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-      [ArenaStatus.Active]: 'bg-green-500/20 text-green-400 border-green-500/40 animate-pulse',
+      [ArenaStatus.Active]: 'bg-sky-500/20 text-sky-400 border-sky-500/40 animate-pulse',
       [ArenaStatus.Ended]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
       [ArenaStatus.Suspended]: 'bg-red-500/20 text-red-400 border-red-500/40',
-      [ArenaStatus.Starting]: 'bg-purple-500/20 text-purple-400 border-purple-500/40',
+      [ArenaStatus.Starting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
       [ArenaStatus.Ending]: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
     };
     
@@ -233,17 +233,17 @@ function ArenaDetailPage() {
     
     return (
       <div 
-        className={`relative bg-white/5 backdrop-blur-md rounded-xl border overflow-hidden transition-all ${
+        className={`relative backdrop-blur-xl rounded-xl border overflow-hidden transition-all hover:scale-[1.01] ${
           playerIsWinner 
-            ? 'border-amber-500/50 bg-gradient-to-r from-amber-500/10 to-orange-500/10' 
+            ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10' 
             : isCurrentUser 
-              ? 'border-blue-500/50' 
-              : 'border-white/10'
+              ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40' 
+              : 'bg-white/5 border-white/10 hover:border-white/20'
         }`}
       >
         {/* Winner badge */}
         {playerIsWinner && (
-          <div className="absolute top-0 right-0 bg-amber-500 text-gray-900 px-3 py-1 text-xs font-bold rounded-bl-lg">
+          <div className="absolute top-0 right-0 bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 px-4 py-1.5 text-xs font-bold rounded-bl-xl shadow-lg">
             🏆 WINNER
           </div>
         )}
@@ -251,8 +251,10 @@ function ArenaDetailPage() {
         <div className="p-4">
           <div className="flex items-center gap-4">
             {/* Rank */}
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-              playerIsWinner ? 'bg-amber-500 text-gray-900' : 'bg-white/10 text-white/60'
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shadow-lg ${
+              playerIsWinner 
+                ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-gray-900 shadow-amber-500/30' 
+                : 'bg-white/10 text-white/50 border border-white/10'
             }`}>
               {rank}
             </div>
@@ -264,10 +266,10 @@ function ArenaDetailPage() {
                 alt={profile.name || 'Player'}
                 width={48}
                 height={48}
-                className="rounded-full"
+                className="rounded-xl"
               />
             ) : (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-zinc-600 to-zinc-700 flex items-center justify-center text-white/60">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center text-white/40 border border-white/5">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
@@ -281,18 +283,18 @@ function ArenaDetailPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-white font-medium">@{profile.twitterUsername}</span>
                     {isCurrentUser && (
-                      <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold border border-blue-500/40">
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-gray-900 text-[10px] font-bold shadow-lg shadow-amber-500/30">
                         YOU
                       </span>
                     )}
                   </div>
-                  <p className="text-white/40 text-xs font-mono">{formatWallet(entry.playerWallet)}</p>
+                  <p className="text-white/30 text-xs font-mono mt-0.5">{formatWallet(entry.playerWallet)}</p>
                 </>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="text-white/70 font-mono">{formatWallet(entry.playerWallet)}</span>
+                  <span className="text-white/60 font-mono">{formatWallet(entry.playerWallet)}</span>
                   {isCurrentUser && (
-                    <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold border border-blue-500/40">
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-gray-900 text-[10px] font-bold shadow-lg shadow-amber-500/30">
                       YOU
                     </span>
                   )}
@@ -303,15 +305,15 @@ function ArenaDetailPage() {
             {/* Token & Value */}
             <div className="text-right">
               <div className="flex items-center gap-2 justify-end">
-                <span className={`px-3 py-1 rounded-lg text-sm font-bold ${
+                <span className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
                   playerIsWinner 
-                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' 
-                    : 'bg-white/10 text-white/80'
+                    ? 'bg-amber-400/20 text-amber-400 border border-amber-500/40' 
+                    : 'bg-white/10 text-white/70 border border-white/5'
                 }`}>
                   {entry.assetSymbol}
                 </span>
               </div>
-              <p className="text-white/60 text-sm mt-1">
+              <p className="text-white/40 text-sm mt-1.5">
                 ${entry.usdValue.toFixed(2)} entry
               </p>
               {playerIsWinner && arena?.status === ArenaStatus.Ended && (
@@ -327,55 +329,62 @@ function ArenaDetailPage() {
   };
 
   return (
-    <div className={`fixed inset-0 overflow-hidden bg-[#0a0a0f] ${aceOfSwords.variable}`}>
-      {/* Background */}
-      <div className="absolute inset-0">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl animate-pulse delay-1000" />
-        <div 
-          className="absolute inset-0 opacity-[0.01]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
+    <div className={`min-h-screen bg-[#222732] ${aceOfSwords.variable}`}>
+      {/* Background - Solid with gradient light effects */}
+      <div className="fixed inset-0 pointer-events-none">
+        {/* Light blue gradient orbs */}
+        <div className="absolute top-[-15%] right-[5%] w-[700px] h-[700px] bg-cyan-400/15 rounded-full blur-[150px]" />
+        <div className="absolute top-[30%] left-[-10%] w-[600px] h-[600px] bg-sky-400/12 rounded-full blur-[130px]" />
+        <div className="absolute bottom-[0%] right-[30%] w-[500px] h-[500px] bg-blue-400/10 rounded-full blur-[120px]" />
+        <div className="absolute top-[50%] left-[40%] w-[400px] h-[400px] bg-cyan-500/8 rounded-full blur-[140px]" />
+        
+        {/* Soft vignette */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_0%,_rgba(34,39,50,0.5)_100%)]" />
       </div>
       
-      <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/80 via-black/40 to-transparent z-[5]" />
+      <div className="fixed inset-x-0 top-0 h-40 bg-gradient-to-b from-[#222732]/90 via-[#222732]/50 to-transparent z-[5] pointer-events-none" />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col h-full p-6 overflow-hidden">
+      <div className="relative z-10 p-6">
         <Navbar />
 
         {/* Back button */}
         <button
           onClick={() => router.push('/arenas')}
-          className="flex items-center gap-2 text-white/60 hover:text-white transition-colors mb-4 w-fit cursor-pointer"
+          className="flex items-center gap-2 text-white/50 hover:text-white transition-all mb-4 w-fit cursor-pointer group"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Arenas
+          <div className="p-1.5 rounded-lg bg-white/5 group-hover:bg-white/10 transition-all">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </div>
+          <span className="text-sm">Back to Arenas</span>
         </button>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto pr-2">
+        {/* Main Content */}
+        <div>
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="flex flex-col items-center gap-4">
-                <svg className="w-10 h-10 text-amber-400 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <p className="text-white/60">Loading arena...</p>
+              <div className="flex flex-col items-center gap-4 bg-white/5 backdrop-blur-xl px-10 py-8 rounded-2xl border border-white/10">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full border-4 border-sky-500/20 border-t-sky-400 animate-spin" />
+                  <div className="absolute inset-0 w-12 h-12 rounded-full border-4 border-cyan-500/20 border-b-cyan-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+                </div>
+                <p className="text-white/50 font-medium">Loading arena...</p>
               </div>
             </div>
           ) : error ? (
             <div className="flex items-center justify-center h-64">
-              <div className="bg-red-500/10 backdrop-blur-md rounded-xl px-6 py-4 border border-red-500/30 text-center">
-                <p className="text-red-400 text-lg mb-2">{error}</p>
+              <div className="bg-red-500/10 backdrop-blur-xl rounded-2xl px-8 py-6 border border-red-500/30 text-center">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-500/20 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <p className="text-red-400 text-lg mb-3">{error}</p>
                 <button
                   onClick={() => router.push('/arenas')}
-                  className="text-white/60 hover:text-white text-sm underline cursor-pointer"
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white/70 hover:text-white text-sm transition-all cursor-pointer"
                 >
                   Go back to arenas
                 </button>
@@ -384,65 +393,76 @@ function ArenaDetailPage() {
           ) : arena && (
             <>
               {/* Header */}
-              <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 mb-6">
-                <div className="flex items-start justify-between mb-6">
+              <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 mb-6 relative overflow-hidden">
+                {/* Decorative glow */}
+                <div className="absolute -top-20 -right-20 w-40 h-40 bg-sky-500/15 rounded-full blur-3xl" />
+                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl" />
+                
+                <div className="relative flex items-start justify-between mb-6">
                   <div>
-                    <div className="flex items-center gap-4 mb-2">
+                    <div className="flex items-center gap-4 mb-3">
                       <h1 
-                        className="text-4xl text-white tracking-wide"
+                        className="text-4xl bg-gradient-to-r from-white via-white to-white/80 bg-clip-text text-transparent tracking-wide"
                         style={{ fontFamily: 'var(--font-ace-of-swords)' }}
                       >
                         ARENA #{arena.arenaId}
                       </h1>
                       {getStatusBadge(arena.status, arena.statusLabel)}
                     </div>
-                    <p className="text-white/40 text-sm font-mono">{arena.pda}</p>
+                    <p className="text-white/30 text-xs font-mono bg-white/5 px-2 py-1 rounded inline-block">{arena.pda}</p>
                   </div>
                   
                   {/* Pool */}
-                  <div className="text-right">
-                    <p className="text-white/50 text-sm uppercase tracking-wider">Total Pool</p>
-                    <p className="text-4xl font-bold text-amber-400">${arena.totalPoolUsd.toFixed(0)}</p>
+                  <div className="text-right bg-white/5 backdrop-blur-sm rounded-xl px-5 py-3 border border-white/10">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Total Pool</p>
+                    <p className="text-3xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">
+                      ${arena.totalPoolUsd.toFixed(0)}
+                    </p>
                   </div>
                 </div>
                 
                 {/* Stats */}
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="bg-white/5 rounded-xl p-4 text-center">
-                    <p className="text-white/50 text-xs uppercase mb-1">Players</p>
-                    <p className="text-2xl font-bold text-white">{arena.playerCount}<span className="text-white/40">/10</span></p>
+                <div className="relative grid grid-cols-4 gap-3">
+                  <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 text-center border border-white/5">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Players</p>
+                    <p className="text-2xl font-bold text-white">{arena.playerCount}<span className="text-white/30">/10</span></p>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-4 text-center">
-                    <p className="text-white/50 text-xs uppercase mb-1">Tokens</p>
+                  <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 text-center border border-white/5">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Tokens</p>
                     <p className="text-2xl font-bold text-white">{arena.assetCount}</p>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-4 text-center">
-                    <p className="text-white/50 text-xs uppercase mb-1">Started</p>
-                    <p className="text-lg font-medium text-white/80">{formatTime(arena.startTimestamp)}</p>
+                  <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 text-center border border-white/5">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Started</p>
+                    <p className="text-sm font-medium text-white/70">{formatTime(arena.startTimestamp)}</p>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-4 text-center">
-                    <p className="text-white/50 text-xs uppercase mb-1">Ended</p>
-                    <p className="text-lg font-medium text-white/80">{formatTime(arena.endTimestamp)}</p>
+                  <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 text-center border border-white/5">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Ended</p>
+                    <p className="text-sm font-medium text-white/70">{formatTime(arena.endTimestamp)}</p>
                   </div>
                 </div>
                 
                 {/* Winner Banner */}
                 {arena.status === ArenaStatus.Ended && arena.winningAsset !== null && (
-                  <div className="mt-6 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 rounded-xl p-4 border border-amber-500/30">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-3xl">🏆</span>
+                  <div className="relative mt-6 bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-amber-500/20 rounded-xl p-5 border border-amber-500/40 overflow-hidden">
+                    <div className="absolute -right-4 -top-4 w-24 h-24 bg-amber-500/20 rounded-full blur-2xl" />
+                    <div className="relative flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                          <span className="text-2xl">🏆</span>
+                        </div>
                         <div>
-                          <p className="text-amber-400/80 text-xs uppercase tracking-wider">Winning Token</p>
+                          <p className="text-amber-300/70 text-[10px] uppercase tracking-wider font-medium">Winning Champion</p>
                           <p className="text-2xl font-bold text-amber-400">
                             {TOKEN_SYMBOLS[arena.winningAsset] || `Token #${arena.winningAsset}`}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-amber-400/80 text-xs uppercase tracking-wider">{getWinners().length} Winner{getWinners().length !== 1 ? 's' : ''}</p>
+                        <p className="text-amber-300/70 text-[10px] uppercase tracking-wider font-medium">
+                          {getWinners().length} Winner{getWinners().length !== 1 ? 's' : ''}
+                        </p>
                         <p className="text-xl font-bold text-green-400">
-                          +${((arena.totalPoolUsd - getWinners().reduce((s, p) => s + p.usdValue, 0)) * 0.9).toFixed(2)} rewards
+                          +${((arena.totalPoolUsd - getWinners().reduce((s, p) => s + p.usdValue, 0)) * 0.9).toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -455,14 +475,17 @@ function ArenaDetailPage() {
                 <div className="mb-6">
                   {/* View Mode Toggle */}
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white/60 text-sm uppercase tracking-wider">Live Battle</h3>
-                    <div className="flex items-center gap-1 bg-white/5 backdrop-blur-sm rounded-lg p-1 border border-white/10">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                      <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Live Battle</h3>
+                    </div>
+                    <div className="flex items-center gap-1 bg-white/5 backdrop-blur-xl rounded-xl p-1 border border-white/10">
                       <button
                         onClick={() => setChartView('standard')}
-                        className={`px-3 py-2 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
                           chartView === 'standard'
-                            ? 'bg-amber-500/80 text-gray-900 shadow-lg'
-                            : 'text-white/60 hover:text-white hover:bg-white/10'
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 shadow-lg shadow-amber-500/30'
+                            : 'text-white/50 hover:text-white hover:bg-white/10'
                         }`}
                       >
                         <span className="flex items-center gap-1.5">
@@ -474,10 +497,10 @@ function ArenaDetailPage() {
                       </button>
                       <button
                         onClick={() => setChartView('hex')}
-                        className={`px-3 py-2 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
                           chartView === 'hex'
-                            ? 'bg-amber-500/80 text-gray-900 shadow-lg'
-                            : 'text-white/60 hover:text-white hover:bg-white/10'
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 shadow-lg shadow-amber-500/30'
+                            : 'text-white/50 hover:text-white hover:bg-white/10'
                         }`}
                       >
                         <span className="flex items-center gap-1.5">
@@ -489,10 +512,10 @@ function ArenaDetailPage() {
                       </button>
                       <button
                         onClick={() => setChartView('spaghetti')}
-                        className={`px-3 py-2 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
                           chartView === 'spaghetti'
-                            ? 'bg-amber-500/80 text-gray-900 shadow-lg'
-                            : 'text-white/60 hover:text-white hover:bg-white/10'
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 shadow-lg shadow-amber-500/30'
+                            : 'text-white/50 hover:text-white hover:bg-white/10'
                         }`}
                       >
                         <span className="flex items-center gap-1.5">
@@ -521,16 +544,16 @@ function ArenaDetailPage() {
               )}
 
               {/* Participants */}
-              <div className="space-y-6 pb-8">
+              <div className="space-y-8 mt-10 pb-8">
                 {/* Winners Section */}
                 {arena.status === ArenaStatus.Ended && getWinners().length > 0 && (
                   <section>
-                    <div className="flex items-center gap-3 mb-4">
-                      <span className="text-2xl">🏆</span>
-                      <h2 className="text-xl font-bold text-amber-400">
-                        WINNERS
-                        <span className="text-amber-400/40 font-normal ml-2">({getWinners().length})</span>
+                    <div className="flex items-center gap-3 mb-5">
+                      <span className="text-lg">🏆</span>
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                        Winners
                       </h2>
+                      <span className="text-white/40">({getWinners().length})</span>
                     </div>
                     <div className="space-y-3">
                       {getWinners().map((entry, idx) => (
@@ -542,19 +565,24 @@ function ArenaDetailPage() {
 
                 {/* All Participants / Losers */}
                 <section>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className={`w-3 h-3 rounded-full ${arena.status === ArenaStatus.Ended ? 'bg-zinc-500' : 'bg-blue-500'}`} />
-                    <h2 className="text-xl font-bold text-white">
-                      {arena.status === ArenaStatus.Ended && getWinners().length > 0 ? 'OTHER PARTICIPANTS' : 'PARTICIPANTS'}
-                      <span className="text-white/40 font-normal ml-2">
-                        ({arena.status === ArenaStatus.Ended ? getLosers().length : arena.playerCount})
-                      </span>
+                  <div className="flex items-center gap-3 mb-5">
+                    <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                      {arena.status === ArenaStatus.Ended && getWinners().length > 0 ? 'Other Participants' : 'Participants'}
                     </h2>
+                    <span className="text-white/40">
+                      ({arena.status === ArenaStatus.Ended ? getLosers().length : arena.playerCount})
+                    </span>
                   </div>
                   
                   {arena.playerCount === 0 ? (
-                    <div className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 p-8 text-center">
+                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-10 text-center">
+                      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-sky-500/10 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-sky-400/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </div>
                       <p className="text-white/40 text-lg">No participants yet</p>
+                      <p className="text-white/20 text-sm mt-1">Be the first to enter this arena!</p>
                     </div>
                   ) : (
                     <div className="space-y-3">

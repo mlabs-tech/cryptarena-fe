@@ -95,7 +95,7 @@ function HomePage() {
       {/* Content Overlay */}
       <div className="relative z-10 flex flex-col h-full p-6">
         {/* Top Navbar */}
-        <Navbar />
+        <Navbar transparent />
 
         {/* Main Content */}
         <div className="flex-1 flex justify-between">

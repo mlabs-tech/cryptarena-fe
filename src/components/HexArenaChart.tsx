@@ -190,11 +190,11 @@ export default function HexArenaChart({
       drawHexagon(centerX, centerY, hexRadius * r, undefined, 'rgba(255, 255, 255, 0.05)', 1);
     }
 
-    // Draw vertical gradient background (bottom = red/losing, top = green/winning)
+    // Draw vertical gradient background (bottom = red/losing, top = blue/winning)
     const vertGradient = ctx.createLinearGradient(centerX, centerY + hexRadius, centerX, centerY - hexRadius);
     vertGradient.addColorStop(0, 'rgba(239, 68, 68, 0.08)'); // Red for losing (bottom)
     vertGradient.addColorStop(0.5, 'transparent');
-    vertGradient.addColorStop(1, 'rgba(34, 197, 94, 0.08)'); // Green for winning (top)
+    vertGradient.addColorStop(1, 'rgba(56, 189, 248, 0.08)'); // Light blue for winning (top)
     
     drawHexagon(centerX, centerY, hexRadius * 0.95, vertGradient, undefined);
 
@@ -215,7 +215,7 @@ export default function HexArenaChart({
     ctx.fillText('LOSING', centerX, centerY + hexRadius * 0.85 + 20);
 
     // Draw "WINNING" label (top)
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.6)';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.6)';
     ctx.font = 'bold 12px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('WINNING', centerX, centerY - hexRadius * 0.85 - 10);
@@ -390,7 +390,7 @@ export default function HexArenaChart({
       ctx.fillText(champ.rank.toString(), badgeX, badgeY);
 
       // Draw price label below the circle (close to it)
-      ctx.fillStyle = volatility >= 0 ? '#22c55e' : '#ef4444';
+      ctx.fillStyle = volatility >= 0 ? '#38bdf8' : '#ef4444';
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -405,7 +405,7 @@ export default function HexArenaChart({
     ctx.fillText('LIVE', 24, 24);
 
     // Draw live indicator
-    ctx.fillStyle = '#22c55e';
+    ctx.fillStyle = '#38bdf8';
     ctx.beginPath();
     ctx.arc(66, 30, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -483,7 +483,7 @@ export default function HexArenaChart({
       <div className="w-[260px] flex-shrink-0">
         <div className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 p-4 h-full">
           <div className="flex items-center gap-2 mb-4">
-            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
             <h4 className="text-white/80 text-sm font-bold uppercase tracking-wider">Leaderboard</h4>
           </div>
           
@@ -520,7 +520,7 @@ export default function HexArenaChart({
                 
                 {/* Volatility */}
                 <span className={`text-xs font-bold flex-shrink-0 ${
-                  champ.currentVolatility >= 0 ? 'text-green-400' : 'text-red-400'
+                  champ.currentVolatility >= 0 ? 'text-sky-400' : 'text-red-400'
                 }`}>
                   {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(2)}%
                 </span>

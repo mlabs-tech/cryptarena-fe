@@ -113,12 +113,12 @@ function ArenasPage() {
   const getStatusBadge = (status: number, statusLabel: string) => {
     const styles: Record<number, string> = {
       [ArenaStatus.Uninitialized]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
-      [ArenaStatus.Waiting]: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+      [ArenaStatus.Waiting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
       [ArenaStatus.Ready]: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-      [ArenaStatus.Active]: 'bg-green-500/20 text-green-400 border-green-500/40 animate-pulse',
+      [ArenaStatus.Active]: 'bg-sky-500/20 text-sky-400 border-sky-500/40 animate-pulse',
       [ArenaStatus.Ended]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
       [ArenaStatus.Suspended]: 'bg-red-500/20 text-red-400 border-red-500/40',
-      [ArenaStatus.Starting]: 'bg-purple-500/20 text-purple-400 border-purple-500/40',
+      [ArenaStatus.Starting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
       [ArenaStatus.Ending]: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
     };
     
@@ -149,28 +149,30 @@ function ArenasPage() {
     
     return (
       <div 
-        className={`group relative bg-white/10 backdrop-blur-md rounded-2xl border overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:bg-white/15 cursor-pointer ${
+        className={`group relative backdrop-blur-xl rounded-2xl border overflow-hidden transition-all duration-300 hover:scale-[1.02] cursor-pointer ${
           isUserInArena 
-            ? 'border-amber-500/50 shadow-lg shadow-amber-500/10' 
-            : 'border-white/20'
+            ? 'bg-gradient-to-br from-amber-500/15 to-orange-500/10 border-amber-500/40 shadow-lg shadow-amber-500/20' 
+            : isOngoing
+              ? 'bg-white/5 border-sky-500/30 hover:border-sky-400/50 hover:shadow-lg hover:shadow-sky-500/10'
+              : 'bg-white/5 border-white/10 hover:border-white/20'
         }`}
         onClick={() => router.push(`/arenas/${arena.arenaId}`)}
       >
-        {/* Gradient accent on top */}
+        {/* Glowing top accent */}
         <div className={`h-1 w-full ${
           isOngoing 
-            ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-red-500' 
-            : 'bg-gradient-to-r from-zinc-500 via-zinc-600 to-zinc-700'
+            ? 'bg-sky-400' 
+            : 'bg-zinc-600'
         }`} />
         
-        <div className="p-5">
+        <div className="relative p-5">
           {/* Header */}
           <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="flex items-center gap-3 mb-1">
+              <div className="flex items-center gap-3 mb-2">
                 <h3 className="text-xl font-bold text-white">Arena #{arena.arenaId}</h3>
                 {isUserInArena && (
-                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/40">
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-gray-900 text-[10px] font-bold shadow-lg shadow-amber-500/30">
                     YOU
                   </span>
                 )}
@@ -180,30 +182,30 @@ function ArenasPage() {
             
             {/* Pool Amount */}
             <div className="text-right">
-              <p className="text-xs text-white/50 uppercase tracking-wider">Pool</p>
-              <p className="text-2xl font-bold text-amber-400">
+              <p className="text-xs text-white/50 uppercase tracking-wider mb-1">Pool</p>
+              <p className="text-2xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">
                 ${arena.totalPoolUsd.toFixed(0)}
               </p>
             </div>
           </div>
           
           {/* Stats Grid */}
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="bg-white/5 rounded-xl p-3 text-center">
-              <p className="text-xs text-white/50 mb-1">Players</p>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 text-center border border-white/5">
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Players</p>
               <p className="text-lg font-bold text-white">
-                {arena.playerCount}<span className="text-white/40">/10</span>
+                {arena.playerCount}<span className="text-white/30">/10</span>
               </p>
             </div>
-            <div className="bg-white/5 rounded-xl p-3 text-center">
-              <p className="text-xs text-white/50 mb-1">Tokens</p>
+            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 text-center border border-white/5">
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Tokens</p>
               <p className="text-lg font-bold text-white">{arena.assetCount}</p>
             </div>
-            <div className="bg-white/5 rounded-xl p-3 text-center">
-              <p className="text-xs text-white/50 mb-1">
+            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 text-center border border-white/5">
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">
                 {isOngoing ? 'Ends' : 'Ended'}
               </p>
-              <p className="text-sm font-medium text-white/80">
+              <p className="text-sm font-medium text-white/70">
                 {arena.endTimestamp ? formatTime(arena.endTimestamp) : '—'}
               </p>
             </div>
@@ -211,13 +213,12 @@ function ArenasPage() {
           
           {/* Winner Badge (for ended arenas) */}
           {!isOngoing && arena.winningAsset !== null && (
-            <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 rounded-xl p-3 border border-amber-500/30">
+            <div className="bg-gradient-to-r from-amber-500/20 to-yellow-500/10 rounded-xl p-3 border border-amber-500/30">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-amber-400/80 uppercase tracking-wider">Winning Token</span>
+                <span className="text-xs text-amber-300/80 uppercase tracking-wider font-medium">Winner</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold text-amber-400">🏆</span>
-                  <span className="text-white font-bold">
-                    {/* Get token symbol from index */}
+                  <span className="text-lg">🏆</span>
+                  <span className="text-amber-400 font-bold">
                     {['SOL', 'TRUMP', 'PUMP', 'BONK', 'JUP', 'PENGU', 'PYTH', 'HNT', 'FARTCOIN', 'RAY', 'JTO', 'KMNO', 'MET', 'W'][arena.winningAsset] || `Token #${arena.winningAsset}`}
                   </span>
                 </div>
@@ -228,13 +229,13 @@ function ArenasPage() {
           {/* Progress bar for waiting arenas */}
           {isOngoing && arena.status === ArenaStatus.Waiting && (
             <div className="mt-2">
-              <div className="flex items-center justify-between text-xs text-white/50 mb-1">
+              <div className="flex items-center justify-between text-xs text-white/40 mb-1.5">
                 <span>Filling up...</span>
-                <span>{arena.playerCount}/10</span>
+                <span className="text-amber-400 font-medium">{arena.playerCount}/10</span>
               </div>
               <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-500"
+                  className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-400 rounded-full transition-all duration-500 shadow-sm shadow-amber-500/50"
                   style={{ width: `${(arena.playerCount / 10) * 100}%` }}
                 />
               </div>
@@ -242,8 +243,8 @@ function ArenasPage() {
           )}
           
           {/* View Arrow */}
-          <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-            <svg className="w-6 h-6 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-all duration-200 transform group-hover:translate-x-1">
+            <svg className="w-6 h-6 text-amber-400/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </div>
@@ -253,101 +254,93 @@ function ArenasPage() {
   };
 
   return (
-    <div className={`fixed inset-0 overflow-hidden bg-[#0a0a0f] ${aceOfSwords.variable}`}>
-      {/* Background Pattern */}
-      <div className="absolute inset-0">
-        {/* Animated gradient orbs */}
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl animate-pulse delay-1000" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-500/5 rounded-full blur-3xl" />
+    <div className={`min-h-screen bg-[#222732] ${aceOfSwords.variable}`}>
+      {/* Background - Solid with gradient light effects */}
+      <div className="fixed inset-0 pointer-events-none">
+        {/* Light blue gradient orbs */}
+        <div className="absolute top-[-15%] right-[5%] w-[700px] h-[700px] bg-cyan-400/15 rounded-full blur-[150px]" />
+        <div className="absolute top-[30%] left-[-10%] w-[600px] h-[600px] bg-sky-400/12 rounded-full blur-[130px]" />
+        <div className="absolute bottom-[0%] right-[30%] w-[500px] h-[500px] bg-blue-400/10 rounded-full blur-[120px]" />
+        <div className="absolute top-[50%] left-[40%] w-[400px] h-[400px] bg-cyan-500/8 rounded-full blur-[140px]" />
         
-        {/* Hexagon pattern overlay */}
-        <div 
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
+        {/* Soft vignette */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_0%,_rgba(34,39,50,0.5)_100%)]" />
       </div>
       
       {/* Top gradient overlay */}
-      <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/80 via-black/40 to-transparent z-[5]" />
+      <div className="fixed inset-x-0 top-0 h-40 bg-gradient-to-b from-[#222732]/90 via-[#222732]/50 to-transparent z-[5] pointer-events-none" />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col h-full p-6 overflow-hidden">
+      <div className="relative z-10 p-6">
         {/* Navbar */}
         <Navbar />
 
         {/* Page Title */}
-        <div className="flex items-center justify-between mb-6 mt-2">
-          <div>
-            <h1 
-              className="text-4xl text-white tracking-[0.1em]"
-              style={{ fontFamily: 'var(--font-ace-of-swords)' }}
-            >
-              ARENAS
-            </h1>
-            <p className="text-white/50 text-sm mt-1">
-              Browse ongoing battles and past victories
-            </p>
-          </div>
-          
-          {/* Quick stats */}
-          <div className="flex items-center gap-4">
-            <div className="bg-white/10 backdrop-blur-md rounded-xl px-5 py-3 border border-white/20">
-              <p className="text-xs text-white/50 uppercase tracking-wider">Live Arenas</p>
-              <p className="text-2xl font-bold text-green-400">{ongoingArenas.length}</p>
-            </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl px-5 py-3 border border-white/20">
-              <p className="text-xs text-white/50 uppercase tracking-wider">Completed</p>
-              <p className="text-2xl font-bold text-white">{endedArenas.length}</p>
-            </div>
-          </div>
+        <div className="mb-8 mt-2">
+          <h1 
+            className="text-4xl text-white tracking-[0.15em] mb-2"
+            style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+          >
+            ARENAS
+          </h1>
+          <p className="text-white/40 text-sm">
+            Browse ongoing battles and past victories
+          </p>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto pr-2 space-y-8 pb-8">
+        {/* Content */}
+        <div className="space-y-10 pb-8">
           {isLoading && !ongoingArenas.length && !endedArenas.length ? (
             <div className="flex items-center justify-center h-64">
-              <div className="flex flex-col items-center gap-4">
-                <svg className="w-10 h-10 text-amber-400 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <p className="text-white/60">Loading arenas...</p>
+              <div className="flex flex-col items-center gap-4 bg-white/5 backdrop-blur-xl px-10 py-8 rounded-2xl border border-white/10">
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full border-4 border-sky-500/20 border-t-sky-400 animate-spin" />
+                  <div className="absolute inset-0 w-12 h-12 rounded-full border-4 border-cyan-500/20 border-b-cyan-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+                </div>
+                <p className="text-white/50 font-medium">Loading arenas...</p>
               </div>
             </div>
           ) : error ? (
             <div className="flex items-center justify-center h-64">
-              <div className="bg-red-500/10 backdrop-blur-md rounded-xl px-6 py-4 border border-red-500/30">
-                <p className="text-red-400">{error}</p>
+              <div className="bg-red-500/10 backdrop-blur-xl rounded-2xl px-8 py-5 border border-red-500/30">
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-red-400">{error}</p>
+                </div>
               </div>
             </div>
           ) : (
             <>
               {/* Ongoing Arenas Section */}
               <section>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
-                  <h2 className="text-xl font-bold text-white">
-                    ONGOING
-                    <span className="text-white/40 font-normal ml-2">({ongoingArenas.length})</span>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                  <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                    Ongoing
                   </h2>
+                  <span className="text-white/40 font-normal">({ongoingArenas.length})</span>
                 </div>
                 
                 {ongoingArenas.length === 0 ? (
-                  <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-8 text-center">
-                    <p className="text-white/40 text-lg mb-2">No ongoing arenas</p>
-                    <p className="text-white/30 text-sm">Start a new arena by clicking Ready Up!</p>
+                  <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-10 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-sky-500/20 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                    </div>
+                    <p className="text-white/60 text-lg mb-2">No ongoing arenas</p>
+                    <p className="text-white/30 text-sm mb-5">Start a new arena by clicking Ready Up!</p>
                     <button
                       onClick={() => router.push('/')}
-                      className="mt-4 px-6 py-2 bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold rounded-lg transition-all cursor-pointer"
+                      className="px-8 py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-gray-900 font-bold rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-105"
                     >
-                      Play Now
+                      READY UP
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {ongoingArenas.map((arena) => (
                       <ArenaCard key={arena.arenaId} arena={arena} isOngoing={true} />
                     ))}
@@ -357,20 +350,25 @@ function ArenasPage() {
 
               {/* Ended Arenas Section */}
               <section>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-3 h-3 rounded-full bg-zinc-500" />
-                  <h2 className="text-xl font-bold text-white">
-                    ENDED
-                    <span className="text-white/40 font-normal ml-2">({endedArenas.length})</span>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-2 h-2 rounded-full bg-zinc-500" />
+                  <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                    Ended
                   </h2>
+                  <span className="text-white/40 font-normal">({endedArenas.length})</span>
                 </div>
                 
                 {endedArenas.length === 0 ? (
-                  <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-8 text-center">
+                  <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-10 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
                     <p className="text-white/40 text-lg">No completed arenas yet</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {endedArenas.map((arena) => (
                       <ArenaCard key={arena.arenaId} arena={arena} isOngoing={false} />
                     ))}

@@ -155,7 +155,7 @@ export default function SpaghettiChart({
     ctx.textAlign = 'left';
     ctx.fillText('LIVE', 20, 28);
 
-    ctx.fillStyle = '#22c55e';
+    ctx.fillStyle = '#38bdf8';
     ctx.beginPath();
     ctx.arc(62, 24, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -281,7 +281,7 @@ export default function SpaghettiChart({
     ctx.save();
     ctx.translate(15, PADDING.top + 30);
     ctx.rotate(-Math.PI / 2);
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.5)';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.5)';
     ctx.font = 'bold 10px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('WINNING ↑', 0, 0);
