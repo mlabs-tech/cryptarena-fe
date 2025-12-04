@@ -20,7 +20,32 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:808
 const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL || 'http://localhost:3001';
 
 // Mastery ranks
-type MasteryRank = 'wood' | 'silver' | 'gold' | 'diamond' | 'master';
+type MasteryRank = 'wood' | 'bronze' | 'silver' | 'gold' | 'diamond' | 'master' | 'grandmaster';
+
+// Mastery data interfaces
+interface ChampionMastery {
+  assetIndex: number;
+  symbol: string;
+  name: string;
+  masteryPoints: number;
+  gamesPlayed: number;
+  wins: number;
+  podiumFinishes: number;
+  bestPlacement: number | null;
+  masteryLevel: number;
+  pointsToNextLevel: number;
+}
+
+interface UserMastery {
+  userId: string;
+  totalMasteryPoints: number;
+  totalGamesPlayed: number;
+  totalWins: number;
+  winRate: number;
+  rankName: string;
+  rankTier: number;
+  champions: ChampionMastery[];
+}
 
 interface PublicWallet {
   address: string;
@@ -90,22 +115,34 @@ const ArenaStatus = {
   Ending: 7,
 };
 
-// Get mastery rank based on score
+// Get mastery rank based on score (matches backend thresholds)
+// 0: Wood, 500: Bronze, 1500: Silver, 3500: Gold, 7000: Diamond, 15000: Master, 30000: Grandmaster
 const getMasteryRank = (score: number): MasteryRank => {
-  if (score >= 10000) return 'master';
-  if (score >= 5000) return 'diamond';
-  if (score >= 2000) return 'gold';
-  if (score >= 500) return 'silver';
+  if (score >= 30000) return 'grandmaster';
+  if (score >= 15000) return 'master';
+  if (score >= 7000) return 'diamond';
+  if (score >= 3500) return 'gold';
+  if (score >= 1500) return 'silver';
+  if (score >= 500) return 'bronze';
   return 'wood';
+};
+
+// Get rank from backend rank name
+const getRankFromName = (name: string): MasteryRank => {
+  const normalizedName = name.toLowerCase() as MasteryRank;
+  const validRanks: MasteryRank[] = ['wood', 'bronze', 'silver', 'gold', 'diamond', 'master', 'grandmaster'];
+  return validRanks.includes(normalizedName) ? normalizedName : 'wood';
 };
 
 // Banner images for mastery ranks (CDN URLs)
 const BANNER_IMAGES: Record<MasteryRank, string> = {
   wood: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/a9fe4825-d829-42a0-7866-a202d28ae300/public',
+  bronze: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/a9fe4825-d829-42a0-7866-a202d28ae300/public',
   silver: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/9ff8db49-69ef-43b8-47e2-fcfd7ffb9b00/public',
   gold: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/6ee8e146-3ff7-4217-93e5-1a605d739000/public',
   diamond: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/4408eafb-ea4c-43e3-97de-0693ca320100/public',
   master: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1a87a0cc-a7b3-48ee-92eb-e8fd77a6d800/public',
+  grandmaster: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1a87a0cc-a7b3-48ee-92eb-e8fd77a6d800/public',
 };
 
 // Get banner image URL for mastery rank
@@ -137,13 +174,19 @@ function ProfilePage() {
   const [claimSidebarOpen, setClaimSidebarOpen] = useState(false);
   const [selectedArenaForClaim, setSelectedArenaForClaim] = useState<MatchArena | null>(null);
   
-  // Mock stats - will be replaced with real data later
-  const [mockStats] = useState({
-    masteryScore: 5120,
-    badges: 12,
-    matches: 30,
-    challenges: 24,
-  });
+  // Mastery data state
+  const [mastery, setMastery] = useState<UserMastery | null>(null);
+  const [isLoadingMastery, setIsLoadingMastery] = useState(false);
+  
+  // Derived stats from mastery (with fallbacks)
+  const masteryStats = {
+    masteryScore: mastery?.totalMasteryPoints || 0,
+    badges: mastery?.champions?.length || 0, // Number of champions played
+    matches: mastery?.totalGamesPlayed || 0,
+    challenges: mastery?.totalWins || 0,
+    winRate: mastery?.winRate || 0,
+    rankName: mastery?.rankName || 'Wood',
+  };
 
   // Fetch user profile
   const fetchProfile = useCallback(async () => {
@@ -170,6 +213,29 @@ function ProfilePage() {
       setError('Could not load profile');
     } finally {
       setIsLoading(false);
+    }
+  }, [uid]);
+
+  // Fetch mastery data
+  const fetchMastery = useCallback(async () => {
+    if (!uid) return;
+    
+    try {
+      setIsLoadingMastery(true);
+      const response = await fetch(`${BACKEND_URL}/api/mastery/public/user/${uid}`);
+      
+      if (!response.ok) {
+        console.warn('Failed to fetch mastery data, using defaults');
+        return;
+      }
+      
+      const data: UserMastery = await response.json();
+      setMastery(data);
+    } catch (err) {
+      console.error('Failed to fetch mastery:', err);
+      // Non-fatal - use defaults
+    } finally {
+      setIsLoadingMastery(false);
     }
   }, [uid]);
 
@@ -205,7 +271,8 @@ function ProfilePage() {
 
   useEffect(() => {
     fetchProfile();
-  }, [fetchProfile]);
+    fetchMastery();
+  }, [fetchProfile, fetchMastery]);
 
   // Fetch match history when profile loads (for count) and when tab changes to history
   useEffect(() => {
@@ -216,7 +283,10 @@ function ProfilePage() {
 
   if (!user) return null;
 
-  const masteryRank = getMasteryRank(mockStats.masteryScore);
+  // Use real mastery data or fall back to score-based calculation
+  const masteryRank = mastery?.rankName 
+    ? getRankFromName(mastery.rankName) 
+    : getMasteryRank(masteryStats.masteryScore);
   const bannerImage = getBannerImage(masteryRank);
 
   // Get status badge style
@@ -409,9 +479,14 @@ function ProfilePage() {
                                   setSelectedArenaForClaim(arena);
                                   setClaimSidebarOpen(true);
                                 }}
-                                className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-gray-900 text-sm font-bold rounded-lg transition-all cursor-pointer shadow-lg shadow-amber-500/20 hover:scale-105"
+                                className="group relative px-6 py-3 bg-amber-400 hover:bg-amber-300 text-gray-900 text-base font-black rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/30 hover:scale-105 overflow-hidden"
                               >
-                                Claim
+                                {/* Animated border gradient - white lines effect */}
+                                <span className="absolute inset-0 rounded-xl">
+                                  <span className="absolute inset-[-3px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)] animate-[spin_4s_linear_infinite]" />
+                                  <span className="absolute inset-[2px] rounded-lg bg-amber-400 group-hover:bg-amber-300 transition-colors" />
+                                </span>
+                                <span className="relative z-10">Claim Rewards</span>
                               </button>
                             )}
                             
@@ -540,7 +615,7 @@ function ProfilePage() {
                     className="text-[120px] text-sky-400/20 tracking-wider leading-none"
                     style={{ fontFamily: 'var(--font-ace-of-swords)' }}
                   >
-                    {mockStats.masteryScore.toLocaleString()}
+                    {masteryStats.masteryScore.toLocaleString()}
                   </p>
                   <p 
                     className="text-4xl text-sky-400/20 uppercase tracking-[0.3em] text-right -mt-2"
@@ -595,7 +670,7 @@ function ProfilePage() {
                         />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold text-white">{mockStats.badges}</p>
+                    <p className="text-3xl font-bold text-white">{masteryStats.badges}</p>
                     <p className="text-white/50 text-base">Badges</p>
                   </div>
 
@@ -611,7 +686,7 @@ function ProfilePage() {
                       />
                     </div>
                     <p className="text-3xl font-bold text-white">
-                      {matchHistory.length > 0 ? matchHistory.length : mockStats.matches}
+                      {matchHistory.length > 0 ? matchHistory.length : masteryStats.matches}
                     </p>
                     <p className="text-white/50 text-base">Matches</p>
                   </div>
@@ -627,7 +702,7 @@ function ProfilePage() {
                         className="object-contain"
                       />
                     </div>
-                    <p className="text-3xl font-bold text-white">{mockStats.challenges}</p>
+                    <p className="text-3xl font-bold text-white">{masteryStats.challenges}</p>
                     <p className="text-white/50 text-base">Challenges</p>
                   </div>
                 </div>

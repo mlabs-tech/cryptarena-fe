@@ -213,6 +213,22 @@ function ArenaDetailPage() {
     return entry.usdValue + winnerShare;
   };
 
+  // Get asset volatility (price movement in basis points)
+  const getAssetVolatility = (assetIndex: number): number => {
+    if (!arena?.arenaAssets) return 0;
+    const asset = arena.arenaAssets.find(a => a.assetIndex === assetIndex);
+    return asset?.priceMovementBps ?? 0;
+  };
+
+  // Sort participants by volatility (descending - highest volatility first)
+  const sortByVolatility = (entries: PlayerEntry[]): PlayerEntry[] => {
+    return [...entries].sort((a, b) => {
+      const volA = getAssetVolatility(a.assetIndex);
+      const volB = getAssetVolatility(b.assetIndex);
+      return volB - volA; // Higher volatility = better ranking
+    });
+  };
+
   // Get winners and losers
   const getWinners = () => {
     if (!arena || arena.winningAsset === null) return [];
@@ -221,24 +237,44 @@ function ArenaDetailPage() {
 
   const getLosers = () => {
     if (!arena || arena.winningAsset === null) return arena?.playerEntries || [];
-    return arena.playerEntries.filter(p => p.assetIndex !== arena.winningAsset);
+    // Sort losers by volatility (2nd place, 3rd place, etc.)
+    return sortByVolatility(arena.playerEntries.filter(p => p.assetIndex !== arena.winningAsset));
+  };
+
+  // Get all participants sorted by standing (for live arenas)
+  const getSortedParticipants = (): PlayerEntry[] => {
+    if (!arena?.playerEntries) return [];
+    return sortByVolatility(arena.playerEntries);
   };
 
   // Player card component
-  const PlayerCard = ({ entry, rank }: { entry: PlayerEntry; rank: number }) => {
+  const PlayerCard = ({ entry, rank, showVolatility = true }: { entry: PlayerEntry; rank: number; showVolatility?: boolean }) => {
     const profile = userProfiles[entry.playerWallet];
     const isCurrentUser = publicKey && entry.playerWallet === publicKey.toBase58();
     const playerIsWinner = isWinner(entry);
     const winnings = calculateWinnings(entry);
+    const volatility = getAssetVolatility(entry.assetIndex);
+    const volatilityPercent = volatility / 100; // Convert bps to percent
+    
+    // Determine rank style based on position
+    const getRankStyle = () => {
+      if (playerIsWinner) return 'bg-gradient-to-br from-amber-400 to-yellow-500 text-gray-900 shadow-amber-500/30';
+      if (rank === 1) return 'bg-gradient-to-br from-amber-400 to-yellow-500 text-gray-900 shadow-amber-500/30';
+      if (rank === 2) return 'bg-gradient-to-br from-zinc-300 to-zinc-400 text-gray-900 shadow-zinc-400/30';
+      if (rank === 3) return 'bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-amber-700/30';
+      return 'bg-white/10 text-white/50 border border-white/10';
+    };
     
     return (
       <div 
         className={`relative backdrop-blur-xl rounded-xl border overflow-hidden transition-all hover:scale-[1.01] ${
           playerIsWinner 
             ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10' 
-            : isCurrentUser 
-              ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40' 
-              : 'bg-white/5 border-white/10 hover:border-white/20'
+            : rank <= 3
+              ? 'bg-gradient-to-r from-white/8 to-white/4 border-white/20'
+              : isCurrentUser 
+                ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40' 
+                : 'bg-white/5 border-white/10 hover:border-white/20'
         }`}
       >
         {/* Winner badge */}
@@ -248,14 +284,17 @@ function ArenaDetailPage() {
           </div>
         )}
         
+        {/* Leading badge for live arenas */}
+        {!playerIsWinner && rank === 1 && arena?.status === ArenaStatus.Active && (
+          <div className="absolute top-0 right-0 bg-gradient-to-r from-sky-400 to-cyan-400 text-gray-900 px-4 py-1.5 text-xs font-bold rounded-bl-xl shadow-lg">
+            🔥 LEADING
+          </div>
+        )}
+        
         <div className="p-4">
           <div className="flex items-center gap-4">
             {/* Rank */}
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shadow-lg ${
-              playerIsWinner 
-                ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-gray-900 shadow-amber-500/30' 
-                : 'bg-white/10 text-white/50 border border-white/10'
-            }`}>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shadow-lg ${getRankStyle()}`}>
               {rank}
             </div>
             
@@ -302,13 +341,27 @@ function ArenaDetailPage() {
               )}
             </div>
             
+            {/* Volatility (for live/active arenas) */}
+            {showVolatility && (arena?.status === ArenaStatus.Active || arena?.status === ArenaStatus.Ending) && (
+              <div className="text-center px-3">
+                <p className={`text-lg font-bold ${
+                  volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
+                }`}>
+                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(2)}%
+                </p>
+                <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
+              </div>
+            )}
+            
             {/* Token & Value */}
             <div className="text-right">
               <div className="flex items-center gap-2 justify-end">
                 <span className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
                   playerIsWinner 
                     ? 'bg-amber-400/20 text-amber-400 border border-amber-500/40' 
-                    : 'bg-white/10 text-white/70 border border-white/5'
+                    : rank <= 3
+                      ? 'bg-sky-400/20 text-sky-400 border border-sky-500/40'
+                      : 'bg-white/10 text-white/70 border border-white/5'
                 }`}>
                   {entry.assetSymbol}
                 </span>
@@ -319,6 +372,14 @@ function ArenaDetailPage() {
               {playerIsWinner && arena?.status === ArenaStatus.Ended && (
                 <p className="text-green-400 text-sm font-bold mt-1">
                   +${(winnings - entry.usdValue).toFixed(2)} won
+                </p>
+              )}
+              {/* Show volatility for ended arenas */}
+              {arena?.status === ArenaStatus.Ended && !playerIsWinner && (
+                <p className={`text-sm mt-1 ${
+                  volatilityPercent > 0 ? 'text-green-400/70' : volatilityPercent < 0 ? 'text-red-400/70' : 'text-white/30'
+                }`}>
+                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(2)}%
                 </p>
               )}
             </div>
@@ -441,33 +502,6 @@ function ArenaDetailPage() {
                   </div>
                 </div>
                 
-                {/* Winner Banner */}
-                {arena.status === ArenaStatus.Ended && arena.winningAsset !== null && (
-                  <div className="relative mt-6 bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-amber-500/20 rounded-xl p-5 border border-amber-500/40 overflow-hidden">
-                    <div className="absolute -right-4 -top-4 w-24 h-24 bg-amber-500/20 rounded-full blur-2xl" />
-                    <div className="relative flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
-                          <span className="text-2xl">🏆</span>
-                        </div>
-                        <div>
-                          <p className="text-amber-300/70 text-[10px] uppercase tracking-wider font-medium">Winning Champion</p>
-                          <p className="text-2xl font-bold text-amber-400">
-                            {TOKEN_SYMBOLS[arena.winningAsset] || `Token #${arena.winningAsset}`}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-amber-300/70 text-[10px] uppercase tracking-wider font-medium">
-                          {getWinners().length} Winner{getWinners().length !== 1 ? 's' : ''}
-                        </p>
-                        <p className="text-xl font-bold text-green-400">
-                          +${((arena.totalPoolUsd - getWinners().reduce((s, p) => s + p.usdValue, 0)) * 0.9).toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Chart Section - Show for Active arenas */}
@@ -545,7 +579,7 @@ function ArenaDetailPage() {
 
               {/* Participants */}
               <div className="space-y-8 mt-10 pb-8">
-                {/* Winners Section */}
+                {/* Winners Section - Only for ended arenas */}
                 {arena.status === ArenaStatus.Ended && getWinners().length > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
@@ -563,42 +597,87 @@ function ArenaDetailPage() {
                   </section>
                 )}
 
-                {/* All Participants / Losers */}
-                <section>
-                  <div className="flex items-center gap-3 mb-5">
-                    <h2 className="text-lg font-bold text-white uppercase tracking-wider">
-                      {arena.status === ArenaStatus.Ended && getWinners().length > 0 ? 'Other Participants' : 'Participants'}
-                    </h2>
-                    <span className="text-white/40">
-                      ({arena.status === ArenaStatus.Ended ? getLosers().length : arena.playerCount})
-                    </span>
-                  </div>
-                  
-                  {arena.playerCount === 0 ? (
-                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-10 text-center">
-                      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-sky-500/10 flex items-center justify-center">
-                        <svg className="w-8 h-8 text-sky-400/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                      </div>
-                      <p className="text-white/40 text-lg">No participants yet</p>
-                      <p className="text-white/20 text-sm mt-1">Be the first to enter this arena!</p>
+                {/* Live Standings - For active arenas */}
+                {(arena.status === ArenaStatus.Active || arena.status === ArenaStatus.Starting || arena.status === ArenaStatus.Ending) && arena.playerCount > 0 && (
+                  <section>
+                    <div className="flex items-center gap-3 mb-5">
+                      <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                        Live Standings
+                      </h2>
+                      <span className="text-white/40">({arena.playerCount})</span>
+                      <span className="text-white/30 text-xs ml-2">Sorted by volatility</span>
                     </div>
-                  ) : (
                     <div className="space-y-3">
-                      {(arena.status === ArenaStatus.Ended && getWinners().length > 0
-                        ? getLosers()
-                        : arena.playerEntries
-                      ).map((entry, idx) => (
+                      {getSortedParticipants().map((entry, idx) => (
                         <PlayerCard 
                           key={entry.playerWallet} 
                           entry={entry} 
-                          rank={arena.status === ArenaStatus.Ended && getWinners().length > 0 ? getWinners().length + idx + 1 : idx + 1} 
+                          rank={idx + 1}
+                          showVolatility={true}
                         />
                       ))}
                     </div>
-                  )}
-                </section>
+                  </section>
+                )}
+
+                {/* Other Participants - For ended arenas (losers) */}
+                {arena.status === ArenaStatus.Ended && getLosers().length > 0 && (
+                  <section>
+                    <div className="flex items-center gap-3 mb-5">
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                        Other Participants
+                      </h2>
+                      <span className="text-white/40">({getLosers().length})</span>
+                      <span className="text-white/30 text-xs ml-2">Sorted by volatility</span>
+                    </div>
+                    <div className="space-y-3">
+                      {getLosers().map((entry, idx) => (
+                        <PlayerCard 
+                          key={entry.playerWallet} 
+                          entry={entry} 
+                          rank={getWinners().length + idx + 1}
+                          showVolatility={false}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Waiting participants - For waiting/ready arenas */}
+                {(arena.status === ArenaStatus.Waiting || arena.status === ArenaStatus.Ready) && (
+                  <section>
+                    <div className="flex items-center gap-3 mb-5">
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                        Participants
+                      </h2>
+                      <span className="text-white/40">({arena.playerCount})</span>
+                    </div>
+                    
+                    {arena.playerCount === 0 ? (
+                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-10 text-center">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-sky-500/10 flex items-center justify-center">
+                          <svg className="w-8 h-8 text-sky-400/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-white/40 text-lg">No participants yet</p>
+                        <p className="text-white/20 text-sm mt-1">Be the first to enter this arena!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {arena.playerEntries.map((entry, idx) => (
+                          <PlayerCard 
+                            key={entry.playerWallet} 
+                            entry={entry} 
+                            rank={idx + 1}
+                            showVolatility={false}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
               </div>
             </>
           )}
