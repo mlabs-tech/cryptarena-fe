@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet, useWalletContext } from '@/context/WalletContext';
+import { api } from '@/lib/api';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import WalletConnectModal from '@/components/WalletConnectModal';
 import Navbar from '@/components/Navbar';
@@ -15,23 +16,72 @@ const aceOfSwords = localFont({
   variable: '--font-ace-of-swords',
 });
 
-// Mock quest data
-const mockQuests = [
-  { id: 1, title: 'Connect X Account', reward: 50, current: 0, total: 1 },
-  { id: 2, title: 'Enter 3 different arenas', reward: 30, current: 2, total: 3 },
-  { id: 3, title: 'Win one arena match', reward: 100, current: 0, total: 1 },
-  { id: 4, title: 'Invite a friend:', subtitle: 'Your Code: A-45162', reward: 20, current: 0, total: 1, hasCode: true },
-];
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+
+// Quest type from backend
+interface QuestProgress {
+  progressId: string;
+  questId: string;
+  code: string;
+  title: string;
+  description: string;
+  questType: 'ONE_TIME' | 'WEEKLY';
+  goldReward: number;
+  currentAmount: number;
+  requiredAmount: number;
+  isCompleted: boolean;
+  rewardClaimed: boolean;
+  progressPercent: number;
+}
 
 
 function HomePage() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const { publicKey, connected } = useWallet();
   const { currentLinkedWallet, checkAndLinkWallet, isLinking } = useWalletContext();
   
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [isReadyingUp, setIsReadyingUp] = useState(false);
+  const [quests, setQuests] = useState<QuestProgress[]>([]);
+  const [isLoadingQuests, setIsLoadingQuests] = useState(false);
+
+  // Fetch quests from backend
+  const fetchQuests = useCallback(async () => {
+    const token = api.getAccessToken();
+    if (!token) {
+      console.log('No token, skipping quest fetch');
+      return;
+    }
+    
+    try {
+      setIsLoadingQuests(true);
+      const response = await fetch(`${BACKEND_URL}/api/quests/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Quests fetched:', data);
+        setQuests(data);
+      } else {
+        console.error('Failed to fetch quests:', response.status, await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to fetch quests:', error);
+    } finally {
+      setIsLoadingQuests(false);
+    }
+  }, []);
+
+  // Fetch quests when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchQuests();
+    }
+  }, [isAuthenticated, fetchQuests]);
 
   // Handle Ready Up button click
   const handleReadyUp = async () => {
@@ -118,48 +168,71 @@ function HomePage() {
 
             {/* Quest Items */}
             <div className="flex-1 space-y-3 overflow-y-auto">
-              {mockQuests.map((quest) => (
-                <div
-                  key={quest.id}
-                  className="bg-zinc-700/60 backdrop-blur-sm rounded-xl p-4"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="font-bold text-white text-sm">{quest.title}</p>
-                      {quest.hasCode && quest.subtitle && (
-                        <p className="text-white/70 text-xs flex items-center gap-1">
-                          {quest.subtitle}
-                          <button className="text-amber-400 hover:text-amber-300">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              {isLoadingQuests ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                </div>
+              ) : quests.length === 0 ? (
+                <div className="text-center py-8 text-white/50">
+                  <p>No quests available</p>
+                </div>
+              ) : (
+                quests.map((quest) => (
+                  <div
+                    key={quest.questId}
+                    className={`backdrop-blur-sm rounded-xl p-4 transition-all ${
+                      quest.isCompleted 
+                        ? 'bg-green-500/20 border border-green-500/30' 
+                        : 'bg-zinc-700/60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-white text-sm">{quest.title}</p>
+                          {quest.questType === 'WEEKLY' && (
+                            <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] font-bold rounded">
+                              WEEKLY
+                            </span>
+                          )}
+                          {quest.isCompleted && (
+                            <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
-                          </button>
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-amber-400 text-xs font-bold">REWARD</p>
-                      <div className="flex items-center gap-1 justify-end">
-                        <span className="font-bold text-white">{quest.reward}</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-amber-400">
-                          <path d="M23.0049 12.0028V14.0028C23.0049 17.3165 18.08 20.0028 12.0049 20.0028C6.03824 20.0028 1.18114 17.4116 1.00957 14.1797L1.00488 14.0028V12.0028C1.00488 15.3165 5.92975 18.0028 12.0049 18.0028C18.08 18.0028 23.0049 15.3165 23.0049 12.0028ZM12.0049 4.00281C18.08 4.00281 23.0049 6.6891 23.0049 10.0028C23.0049 13.3165 18.08 16.0028 12.0049 16.0028C5.92975 16.0028 1.00488 13.3165 1.00488 10.0028C1.00488 6.6891 5.92975 4.00281 12.0049 4.00281Z"></path>
-                        </svg>
+                          )}
+                        </div>
+                        {quest.description && (
+                          <p className="text-white/50 text-xs mt-0.5">{quest.description}</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-amber-400 text-xs font-bold">REWARD</p>
+                        <div className="flex items-center gap-1 justify-end">
+                          <span className="font-bold text-white">{quest.goldReward}</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-amber-400">
+                            <path d="M23.0049 12.0028V14.0028C23.0049 17.3165 18.08 20.0028 12.0049 20.0028C6.03824 20.0028 1.18114 17.4116 1.00957 14.1797L1.00488 14.0028V12.0028C1.00488 15.3165 5.92975 18.0028 12.0049 18.0028C18.08 18.0028 23.0049 15.3165 23.0049 12.0028ZM12.0049 4.00281C18.08 4.00281 23.0049 6.6891 23.0049 10.0028C23.0049 13.3165 18.08 16.0028 12.0049 16.0028C5.92975 16.0028 1.00488 13.3165 1.00488 10.0028C1.00488 6.6891 5.92975 4.00281 12.0049 4.00281Z"></path>
+                          </svg>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  
-                  {/* Progress Bar */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-2 bg-zinc-900/50 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-amber-400 rounded-full transition-all"
-                        style={{ width: `${(quest.current / quest.total) * 100}%` }}
-                      />
+                    
+                    {/* Progress Bar */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-zinc-900/50 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all ${
+                            quest.isCompleted ? 'bg-green-400' : 'bg-amber-400'
+                          }`}
+                          style={{ width: `${quest.progressPercent}%` }}
+                        />
+                      </div>
+                      <span className="text-white/60 text-xs font-medium">
+                        {quest.currentAmount}/{quest.requiredAmount}
+                      </span>
                     </div>
-                    <span className="text-white/60 text-xs font-medium">{quest.current}/{quest.total}</span>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             {/* Resets Weekly */}
