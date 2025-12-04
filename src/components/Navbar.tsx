@@ -25,7 +25,7 @@ export default function Navbar({ transparent = false }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const { publicKey, connected, disconnect } = useWallet();
+  const { publicKey, connected } = useWallet();
   const { currentLinkedWallet } = useWalletContext();
   
   const [showWalletModal, setShowWalletModal] = useState(false);
@@ -87,7 +87,11 @@ export default function Navbar({ transparent = false }: NavbarProps) {
           </div>
 
           {/* User Profile */}
-          <div className="flex items-center gap-2 bg-white/15 backdrop-blur-xl rounded-full pl-3 pr-1.5 py-1 border border-white/30 cursor-pointer hover:bg-white/25 transition-all">
+          <div 
+            className="flex items-center gap-2 bg-white/15 backdrop-blur-xl rounded-full pl-3 pr-1.5 py-1 border border-white/30 cursor-pointer hover:bg-white/25 transition-all"
+            onClick={() => router.push(`/profile/${user.id}`)}
+            title="View your profile"
+          >
             <span className="text-white text-sm font-medium">@{user.twitterUsername}</span>
             {user.twitterProfilePicture ? (
               <Image

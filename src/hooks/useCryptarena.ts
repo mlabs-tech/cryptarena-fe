@@ -36,7 +36,7 @@ const TOKEN_MINTS: Record<string, string> = {
   PYTH: 'Cm8Z4DsQ4SP7zc3FTcTHpzyZ8hMR1adiDSG7Hf45dFMt',
   HNT: '8dbowGCfdiL7x3tzuKJfbc4WPpHdqRqsHEeqfd5Wh7xn',
   FARTCOIN: '2yaeL5SPximYfKHJMvhsaFfmcoA3XUMcKd7buuq7sFnz',
-  RAY: 'Dx67K9UyaHsPy7shTmuC4xuHvKGFcSpfzBQQNEgP3Fcx',
+  RAY: 'Dx67K9UyaHsPy7shTmuC4xuHvKGFcSpfzBQQNEgP3Fcf',
   JTO: 'ChMDp2sBn23Zyu2YtGU7M6hQUJzMmMdZ6XmWpsrxRKEr',
   KMNO: '2byoKnAGKFFRKcmrxJ7FeizXH1pw2tqN38E7dLs7ogvg',
   MET: '4YHdgCq49res2mKd4EUBFtk2krmzt3RLaSUVVkgwMH36',
@@ -49,8 +49,10 @@ const TOKEN_INDEX: Record<string, number> = {
   HNT: 7, FARTCOIN: 8, RAY: 9, JTO: 10, KMNO: 11, MET: 12, W: 13,
 };
 
-// Instruction discriminator for enter_arena
+// Instruction discriminators (from IDL)
 const ENTER_ARENA_DISCRIMINATOR = Buffer.from([237, 44, 241, 163, 152, 39, 13, 181]);
+const CLAIM_OWN_TOKENS_DISCRIMINATOR = Buffer.from([29, 84, 22, 14, 126, 67, 12, 111]);
+const CLAIM_LOSER_TOKENS_DISCRIMINATOR = Buffer.from([76, 127, 192, 84, 200, 201, 164, 199]);
 
 interface GlobalState {
   admin: PublicKey;
@@ -74,6 +76,29 @@ interface EnterArenaResult {
   signature?: string;
   error?: string;
 }
+
+interface ClaimOwnTokensParams {
+  arenaId: number;
+  tokenSymbol: string;
+}
+
+interface ClaimLoserTokensParams {
+  arenaId: number;
+  loserWallet: string;
+  loserTokenSymbol: string;
+  winningAssetIndex: number;
+}
+
+interface ClaimResult {
+  success: boolean;
+  signature?: string;
+  error?: string;
+}
+
+// Reverse mapping: index to symbol
+const INDEX_TO_TOKEN: Record<number, string> = Object.fromEntries(
+  Object.entries(TOKEN_INDEX).map(([k, v]) => [v, k])
+);
 
 export function useCryptarena() {
   const { publicKey, signTransaction, connected } = useWallet();
@@ -296,12 +321,259 @@ export function useCryptarena() {
     }
   }, [publicKey, signTransaction, connected, connection, fetchGlobalState, getGlobalStatePDA, getArenaPDA, getArenaAssetPDA, getPlayerEntryPDA, getArenaVault]);
 
+  // Claim own tokens (winner gets their original entry back)
+  const claimOwnTokens = useCallback(async (params: ClaimOwnTokensParams): Promise<ClaimResult> => {
+    if (!publicKey || !signTransaction || !connected) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { arenaId, tokenSymbol } = params;
+
+      // Get token mint
+      const mintAddress = TOKEN_MINTS[tokenSymbol];
+      if (!mintAddress) {
+        return { success: false, error: `Unknown token: ${tokenSymbol}` };
+      }
+
+      const mint = new PublicKey(mintAddress);
+      const arenaIdBN = new BN(arenaId);
+
+      // Derive PDAs
+      const [arenaPDA] = await getArenaPDA(arenaIdBN);
+      const [playerEntryPDA] = await getPlayerEntryPDA(arenaPDA, publicKey);
+      
+      // Arena vault is an ATA owned by the arena PDA
+      const arenaVault = await getArenaVault(arenaPDA, mint);
+
+      // Check if the arena vault exists (tokens were actually deposited)
+      const vaultInfo = await connection.getAccountInfo(arenaVault);
+      if (!vaultInfo) {
+        return { 
+          success: false, 
+          error: `No tokens available - arena vault for ${tokenSymbol} does not exist` 
+        };
+      }
+
+      // Winner's token account
+      const winnerTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
+
+      // Build instruction
+      const instruction = new TransactionInstruction({
+        programId: PROGRAM_ID,
+        keys: [
+          { pubkey: arenaPDA, isSigner: false, isWritable: false },
+          { pubkey: playerEntryPDA, isSigner: false, isWritable: true },
+          { pubkey: arenaVault, isSigner: false, isWritable: true },
+          { pubkey: winnerTokenAccount, isSigner: false, isWritable: true },
+          { pubkey: publicKey, isSigner: true, isWritable: false },
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data: CLAIM_OWN_TOKENS_DISCRIMINATOR,
+      });
+
+      // Create transaction
+      const transaction = new Transaction();
+
+      // Ensure winner's ATA exists
+      try {
+        await getAccount(connection, winnerTokenAccount);
+      } catch {
+        transaction.add(
+          createAssociatedTokenAccountInstruction(
+            publicKey,
+            winnerTokenAccount,
+            publicKey,
+            mint
+          )
+        );
+      }
+
+      transaction.add(instruction);
+
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Sign and send
+      const signedTx = await signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      }, 'confirmed');
+
+      console.log('Claim own tokens confirmed:', signature);
+      return { success: true, signature };
+    } catch (err) {
+      console.error('Claim own tokens failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [publicKey, signTransaction, connected, connection, getArenaPDA, getPlayerEntryPDA, getArenaVault]);
+
+  // Claim loser tokens (winner claims from a specific loser)
+  const claimLoserTokens = useCallback(async (params: ClaimLoserTokensParams): Promise<ClaimResult> => {
+    if (!publicKey || !signTransaction || !connected) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { arenaId, loserWallet, loserTokenSymbol, winningAssetIndex } = params;
+
+      // Get loser's token mint
+      const mintAddress = TOKEN_MINTS[loserTokenSymbol];
+      if (!mintAddress) {
+        return { success: false, error: `Unknown token: ${loserTokenSymbol}` };
+      }
+
+      const mint = new PublicKey(mintAddress);
+      const arenaIdBN = new BN(arenaId);
+      const loserPubkey = new PublicKey(loserWallet);
+
+      // Fetch global state to get treasury wallet
+      const globalState = await fetchGlobalState();
+      if (!globalState) {
+        return { success: false, error: 'Protocol not initialized' };
+      }
+
+      // Derive PDAs
+      const [globalStatePDA] = await getGlobalStatePDA();
+      const [arenaPDA] = await getArenaPDA(arenaIdBN);
+      const [arenaAssetPDA] = await getArenaAssetPDA(arenaPDA, winningAssetIndex);
+      const [winnerEntryPDA] = await getPlayerEntryPDA(arenaPDA, publicKey);
+      const [loserEntryPDA] = await getPlayerEntryPDA(arenaPDA, loserPubkey);
+      
+      // Arena vault for the loser's token
+      const arenaVault = await getArenaVault(arenaPDA, mint);
+
+      // Check if the arena vault exists (tokens were actually deposited)
+      const vaultInfo = await connection.getAccountInfo(arenaVault);
+      if (!vaultInfo) {
+        return { 
+          success: false, 
+          error: `No tokens available - arena vault for ${loserTokenSymbol} does not exist` 
+        };
+      }
+
+      // Winner's token account for the loser's token type
+      const winnerTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
+
+      // Treasury token account
+      const treasuryTokenAccount = await getAssociatedTokenAddress(mint, globalState.treasuryWallet);
+
+      // Build instruction
+      const instruction = new TransactionInstruction({
+        programId: PROGRAM_ID,
+        keys: [
+          { pubkey: globalStatePDA, isSigner: false, isWritable: false },
+          { pubkey: arenaPDA, isSigner: false, isWritable: false },
+          { pubkey: arenaAssetPDA, isSigner: false, isWritable: false },
+          { pubkey: winnerEntryPDA, isSigner: false, isWritable: true },
+          { pubkey: loserEntryPDA, isSigner: false, isWritable: false },
+          { pubkey: arenaVault, isSigner: false, isWritable: true },
+          { pubkey: winnerTokenAccount, isSigner: false, isWritable: true },
+          { pubkey: treasuryTokenAccount, isSigner: false, isWritable: true },
+          { pubkey: publicKey, isSigner: true, isWritable: false },
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data: CLAIM_LOSER_TOKENS_DISCRIMINATOR,
+      });
+
+      // Create transaction
+      const transaction = new Transaction();
+
+      // Ensure winner's ATA exists for this token type
+      try {
+        await getAccount(connection, winnerTokenAccount);
+      } catch {
+        transaction.add(
+          createAssociatedTokenAccountInstruction(
+            publicKey,
+            winnerTokenAccount,
+            publicKey,
+            mint
+          )
+        );
+      }
+
+      // Ensure treasury ATA exists
+      try {
+        await getAccount(connection, treasuryTokenAccount);
+      } catch {
+        transaction.add(
+          createAssociatedTokenAccountInstruction(
+            publicKey,
+            treasuryTokenAccount,
+            globalState.treasuryWallet,
+            mint
+          )
+        );
+      }
+
+      transaction.add(instruction);
+
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Sign and send
+      const signedTx = await signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      }, 'confirmed');
+
+      console.log('Claim loser tokens confirmed:', signature);
+      return { success: true, signature };
+    } catch (err) {
+      console.error('Claim loser tokens failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [publicKey, signTransaction, connected, connection, fetchGlobalState, getGlobalStatePDA, getArenaPDA, getArenaAssetPDA, getPlayerEntryPDA, getArenaVault]);
+
+  // Get token symbol from index
+  const getTokenSymbol = useCallback((index: number): string => {
+    return INDEX_TO_TOKEN[index] || `TOKEN_${index}`;
+  }, []);
+
   return {
     enterArena,
+    claimOwnTokens,
+    claimLoserTokens,
     fetchGlobalState,
+    getTokenSymbol,
     isLoading,
     error,
     programId: PROGRAM_ID,
+    TOKEN_MINTS,
+    TOKEN_INDEX,
   };
 }
 
