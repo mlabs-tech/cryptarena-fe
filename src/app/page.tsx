@@ -184,8 +184,8 @@ function HomePage() {
                 disabled={isReadyingUp || isLinking}
                 className="group relative bg-amber-400 hover:bg-amber-300 text-gray-800 font-black text-3xl py-6 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-amber-400/20 cursor-pointer tracking-wide overflow-hidden disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
-                {/* Animated border gradient */}
-                <span className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                {/* Animated border gradient - always visible */}
+                <span className="absolute inset-0 rounded-2xl">
                   <span className="absolute inset-[-4px] rounded-2xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)] animate-[spin_4s_linear_infinite]" />
                   <span className="absolute inset-[3px] rounded-xl bg-amber-400 group-hover:bg-amber-300 transition-colors" />
                 </span>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet, useWalletContext, useConnection } from '@/context/WalletContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import Navbar from '@/components/Navbar';
 import { api, CryptoCoin } from '@/lib/api';
 import { indexerApi, CurrentArenaResponse, PlayerCheckResponse, PlayerEntry } from '@/lib/indexer-api';
 import { useCryptarena } from '@/hooks/useCryptarena';
@@ -319,10 +320,6 @@ function QueueMatchPage() {
     setBackgroundImage(CHAMP_BACKGROUNDS[randomIndex]);
   };
 
-  const handleBack = () => {
-    router.push('/');
-  };
-
   // Handle LOCK IN button click
   const handleLockIn = async () => {
     if (!selectedToken || !usdAmount || !coinData) return;
@@ -367,19 +364,18 @@ function QueueMatchPage() {
     : '0.00';
 
   return (
-    <div className={`fixed inset-0 overflow-hidden bg-[#0a0a0f] ${aceOfSwords.variable}`}>
-      {/* Default dark background with hexagon pattern (when no champion selected) */}
+    <div className={`fixed inset-0 overflow-hidden bg-[#222732] ${aceOfSwords.variable}`}>
+      {/* Default background with gradient light effects (when no champion selected) */}
       {!selectedToken && (
-        <div className="absolute inset-0">
-          {/* Hexagon pattern overlay */}
-          <div 
-            className="absolute inset-0 opacity-[0.04]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-            }}
-          />
-          {/* Subtle radial gradient */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-800/30 via-transparent to-transparent" />
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Light blue gradient orbs */}
+          <div className="absolute top-[-15%] right-[5%] w-[700px] h-[700px] bg-cyan-400/15 rounded-full blur-[150px]" />
+          <div className="absolute top-[30%] left-[-10%] w-[600px] h-[600px] bg-sky-400/12 rounded-full blur-[130px]" />
+          <div className="absolute bottom-[0%] right-[30%] w-[500px] h-[500px] bg-blue-400/10 rounded-full blur-[120px]" />
+          <div className="absolute top-[50%] left-[40%] w-[400px] h-[400px] bg-cyan-500/8 rounded-full blur-[140px]" />
+          
+          {/* Soft vignette */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_0%,_rgba(34,39,50,0.5)_100%)]" />
         </div>
       )}
 
@@ -403,72 +399,12 @@ function QueueMatchPage() {
         </>
       )}
       
-      {/* Top gradient overlay - darker */}
-      <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/80 via-black/50 to-transparent z-[5]" />
-      
-      {/* Bottom gradient overlay - darker */}
-      <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/90 via-black/60 to-transparent z-[5]" />
-
       {/* Content */}
       <div className="relative z-10 flex flex-col h-full">
         {/* Top Section - Title, Players, Navbar */}
         <div className="px-6 pt-4">
-          {/* Navbar Row */}
-          <div className="flex items-center justify-between mb-4">
-            {/* Left - Back Button */}
-            <button
-              onClick={handleBack}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20 text-white font-bold text-sm hover:bg-white/20 transition-all cursor-pointer"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              BACK
-            </button>
-
-            {/* Right - Gold, Wallet & Profile */}
-            <div className="flex items-center gap-3">
-              {/* Gold Balance */}
-              <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-amber-400">
-                  <path d="M23.0049 12.0028V14.0028C23.0049 17.3165 18.08 20.0028 12.0049 20.0028C6.03824 20.0028 1.18114 17.4116 1.00957 14.1797L1.00488 14.0028V12.0028C1.00488 15.3165 5.92975 18.0028 12.0049 18.0028C18.08 18.0028 23.0049 15.3165 23.0049 12.0028ZM12.0049 4.00281C18.08 4.00281 23.0049 6.6891 23.0049 10.0028C23.0049 13.3165 18.08 16.0028 12.0049 16.0028C5.92975 16.0028 1.00488 13.3165 1.00488 10.0028C1.00488 6.6891 5.92975 4.00281 12.0049 4.00281Z"></path>
-                </svg>
-                <span className="font-bold text-amber-400 text-sm">{user.gold.toLocaleString()}</span>
-              </div>
-
-              {/* Wallet Status */}
-              {connected && publicKey && (
-                <div className={`flex items-center gap-2 backdrop-blur-sm rounded-full px-3 py-2 border ${
-                  currentLinkedWallet 
-                    ? 'bg-green-500/10 border-green-500/30' 
-                    : 'bg-amber-500/10 border-amber-500/30'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${currentLinkedWallet ? 'bg-green-400' : 'bg-amber-400 animate-pulse'}`} />
-                  <span className="text-white text-xs font-mono">
-                    {publicKey.toBase58().slice(0, 4)}...{publicKey.toBase58().slice(-4)}
-                  </span>
-                </div>
-              )}
-
-              {/* User Profile */}
-              <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full pl-3 pr-2 py-1.5 border border-white/20">
-                <span className="text-white text-sm font-medium">@{user.twitterUsername}</span>
-                {user.twitterProfilePicture ? (
-                  <Image
-                    src={user.twitterProfilePicture}
-                    alt={user.name}
-                    width={28}
-                    height={28}
-                    className="rounded-full"
-                  />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white font-bold text-xs">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          {/* Navbar - transparent like home page */}
+          <Navbar transparent={true} />
 
           {/* Title */}
           <div className="text-center mb-4">
@@ -558,10 +494,14 @@ function QueueMatchPage() {
                     </>
                   ) : (
                     <>
-                      {/* Empty slot */}
+                      {/* Empty slot - liquid glass effect (more visible when champion selected) */}
                       <div className="h-4 mb-1" />
-                      <div className="w-14 h-14 rounded-full border-2 border-dashed border-zinc-700/50 flex items-center justify-center bg-zinc-900/30">
-                        <span className="text-zinc-600 text-lg">?</span>
+                      <div className={`w-14 h-14 rounded-full border border-dashed flex items-center justify-center backdrop-blur-xl shadow-lg transition-all ${
+                        selectedToken 
+                          ? 'bg-white/20 border-white/30' 
+                          : 'bg-white/5 border-white/20'
+                      }`}>
+                        <span className={`text-lg transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`}>?</span>
                       </div>
                       <div className="mt-2 h-4" />
                     </>
@@ -643,7 +583,7 @@ function QueueMatchPage() {
                   <p className="text-red-400 text-sm">{arenaError}</p>
                 ) : !arenaData?.exists ? (
                   <div>
-                    <p className="text-amber-400 text-sm font-bold">🚀 Be the first to start a new arena!</p>
+                    <p className="text-amber-400 text-sm font-bold">Be the first to start a new arena!</p>
                     <p className="text-white/70 text-xs">Arena #{arenaData?.nextArenaId || '1'} waiting for players</p>
                   </div>
                 ) : userAlreadyInArena ? (
@@ -677,7 +617,7 @@ function QueueMatchPage() {
             <div className="flex items-center justify-center gap-20 animate-fade-in w-full">
               {/* Rule 1 - Lock in value */}
               <div className="flex flex-col items-center text-center group">
-                <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center mb-4 group-hover:bg-white/20 transition-all group-hover:scale-105">
+                <div className="w-24 h-24 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center mb-4 group-hover:bg-white/10 transition-all group-hover:scale-105 shadow-lg">
                   <svg className="w-12 h-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -694,7 +634,7 @@ function QueueMatchPage() {
 
               {/* Rule 2 - Players */}
               <div className="flex flex-col items-center text-center group">
-                <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center mb-4 group-hover:bg-white/20 transition-all group-hover:scale-105">
+                <div className="w-24 h-24 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center mb-4 group-hover:bg-white/10 transition-all group-hover:scale-105 shadow-lg">
                   <svg className="w-12 h-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
@@ -709,7 +649,7 @@ function QueueMatchPage() {
 
               {/* Rule 3 - Timeframe */}
               <div className="flex flex-col items-center text-center group">
-                <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center mb-4 group-hover:bg-white/20 transition-all group-hover:scale-105">
+                <div className="w-24 h-24 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center mb-4 group-hover:bg-white/10 transition-all group-hover:scale-105 shadow-lg">
                   <svg className="w-12 h-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -884,80 +824,53 @@ function QueueMatchPage() {
                   className={`group relative transition-all cursor-pointer hover:scale-110 hover:z-10 ${isLocked ? 'opacity-70' : ''}`}
                   style={{ width: '72px', height: '84px' }}
                 >
-                  {/* Shadow layer (3D effect) */}
-                  <svg 
-                    className="absolute w-full h-full opacity-40"
-                    viewBox="0 0 72 84"
-                    style={{ top: '3px', left: '2px' }}
-                  >
-                    <polygon 
-                      points="36,2 70,23 70,65 36,86 2,65 2,23" 
-                      fill="#000"
-                    />
-                  </svg>
-                  
-                  {/* Main hexagon with 3D border effect */}
+                  {/* Main hexagon with simple liquid glass effect */}
                   <svg 
                     className={`absolute inset-0 w-full h-full transition-all ${
                       selectedToken === token.symbol 
                         ? 'drop-shadow-[0_0_12px_rgba(251,191,36,0.6)]' 
-                        : 'group-hover:drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]'
+                        : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
                     }`}
                     viewBox="0 0 72 84"
                   >
-                    {/* Outer dark edge (3D depth) */}
-                    <polygon 
-                      points="36,0 72,21 72,63 36,84 0,63 0,21" 
-                      className={`transition-all ${
-                        selectedToken === token.symbol
-                          ? 'fill-amber-500'
-                          : isLocked 
-                            ? 'fill-gray-500/60' 
-                            : 'fill-gray-400/60 group-hover:fill-amber-500/80'
-                      }`}
-                    />
-                    {/* Middle border */}
+                    {/* Glass fill - more visible when champion selected */}
                     <polygon 
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-400'
-                          : isLocked
-                            ? 'fill-gray-400/50'
-                            : 'fill-white/50 group-hover:fill-amber-400/70'
+                          ? 'fill-amber-400/30'
+                          : selectedToken
+                            ? 'fill-white/20 group-hover:fill-white/25'
+                            : isLocked
+                              ? 'fill-white/5'
+                              : 'fill-white/5 group-hover:fill-white/10'
                       }`}
                     />
-                    {/* Inner fill */}
+                    {/* Border stroke - more visible when champion selected */}
                     <polygon 
-                      points="36,5 67,24 67,60 36,79 5,60 5,24" 
+                      points="36,2 70,22 70,62 36,82 2,62 2,22" 
+                      fill="none"
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-300/40'
-                          : isLocked
-                            ? 'fill-gray-200/80'
-                            : 'fill-white/95 group-hover:fill-white'
+                          ? 'stroke-amber-400'
+                          : selectedToken
+                            ? 'stroke-white/30 group-hover:stroke-amber-400/60'
+                            : isLocked
+                              ? 'stroke-white/10'
+                              : 'stroke-white/10 group-hover:stroke-amber-400/60'
                       }`}
-                    />
-                    {/* Top highlight (3D shine effect) */}
-                    <polygon 
-                      points="36,8 63,25 63,35 36,28 9,35 9,25" 
-                      className="fill-white/30"
-                    />
-                    {/* Bottom shadow (3D depth) */}
-                    <polygon 
-                      points="36,56 63,49 63,58 36,76 9,58 9,49" 
-                      className="fill-black/10"
+                      strokeWidth="1.5"
                     />
                   </svg>
                   
-                  {/* Loading scan effect */}
+                  {/* Loading skeleton scan effect */}
                   {isLoading && (
                     <div 
                       className="absolute inset-0 overflow-hidden"
                       style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}
                     >
                       <div 
-                        className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-400/40 to-transparent animate-scan"
+                        className="absolute inset-0 bg-gradient-to-b from-transparent via-sky-400/40 to-transparent animate-scan"
                         style={{ animationDelay: `${index * 0.1}s` }}
                       />
                     </div>
@@ -965,27 +878,20 @@ function QueueMatchPage() {
                   
                   {/* Content */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    {isLoading ? (
-                      <div className="flex flex-col items-center">
-                        <div className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin mb-1" />
-                        <span className="text-amber-400/70 text-[10px] font-medium">
-                          {token.symbol}
-                        </span>
-                      </div>
-                    ) : isLocked ? (
+                    {isLocked ? (
                       <>
-                        <svg className="w-4 h-4 text-gray-500 mb-0.5" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className={`w-4 h-4 mb-0.5 transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`} fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                         </svg>
-                        <span className="font-bold text-xs text-center leading-tight text-gray-500">
+                        <span className={`font-bold text-xs text-center leading-tight transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`}>
                           {token.symbol}
                         </span>
                       </>
                     ) : (
                       <span className={`font-bold text-xs text-center leading-tight ${
                         selectedToken === token.symbol 
-                          ? 'text-amber-600' 
-                          : 'text-gray-700 group-hover:text-amber-600'
+                          ? 'text-amber-400' 
+                          : 'text-white/80 group-hover:text-amber-400'
                       }`}>
                         {token.symbol}
                       </span>
@@ -993,7 +899,7 @@ function QueueMatchPage() {
                   </div>
                   
                   {/* Selected indicator */}
-                  {selectedToken === token.symbol && !isLoading && (
+                  {selectedToken === token.symbol && (
                     <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center shadow-lg border-2 border-amber-500">
                       <svg className="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -1020,80 +926,53 @@ function QueueMatchPage() {
                   className={`group relative transition-all cursor-pointer hover:scale-110 hover:z-10 ${isLocked ? 'opacity-70' : ''}`}
                   style={{ width: '72px', height: '84px' }}
                 >
-                  {/* Shadow layer (3D effect) */}
-                  <svg 
-                    className="absolute w-full h-full opacity-40"
-                    viewBox="0 0 72 84"
-                    style={{ top: '3px', left: '2px' }}
-                  >
-                    <polygon 
-                      points="36,2 70,23 70,65 36,86 2,65 2,23" 
-                      fill="#000"
-                    />
-                  </svg>
-                  
-                  {/* Main hexagon with 3D border effect */}
+                  {/* Main hexagon with simple liquid glass effect */}
                   <svg 
                     className={`absolute inset-0 w-full h-full transition-all ${
                       selectedToken === token.symbol 
                         ? 'drop-shadow-[0_0_12px_rgba(251,191,36,0.6)]' 
-                        : 'group-hover:drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]'
+                        : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
                     }`}
                     viewBox="0 0 72 84"
                   >
-                    {/* Outer dark edge (3D depth) */}
-                    <polygon 
-                      points="36,0 72,21 72,63 36,84 0,63 0,21" 
-                      className={`transition-all ${
-                        selectedToken === token.symbol
-                          ? 'fill-amber-500'
-                          : isLocked 
-                            ? 'fill-gray-500/60' 
-                            : 'fill-gray-400/60 group-hover:fill-amber-500/80'
-                      }`}
-                    />
-                    {/* Middle border */}
+                    {/* Glass fill - more visible when champion selected */}
                     <polygon 
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-400'
-                          : isLocked
-                            ? 'fill-gray-400/50'
-                            : 'fill-white/50 group-hover:fill-amber-400/70'
+                          ? 'fill-amber-400/30'
+                          : selectedToken
+                            ? 'fill-white/20 group-hover:fill-white/25'
+                            : isLocked
+                              ? 'fill-white/5'
+                              : 'fill-white/5 group-hover:fill-white/10'
                       }`}
                     />
-                    {/* Inner fill */}
+                    {/* Border stroke - more visible when champion selected */}
                     <polygon 
-                      points="36,5 67,24 67,60 36,79 5,60 5,24" 
+                      points="36,2 70,22 70,62 36,82 2,62 2,22" 
+                      fill="none"
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-300/40'
-                          : isLocked
-                            ? 'fill-gray-200/80'
-                            : 'fill-white/95 group-hover:fill-white'
+                          ? 'stroke-amber-400'
+                          : selectedToken
+                            ? 'stroke-white/30 group-hover:stroke-amber-400/60'
+                            : isLocked
+                              ? 'stroke-white/10'
+                              : 'stroke-white/10 group-hover:stroke-amber-400/60'
                       }`}
-                    />
-                    {/* Top highlight (3D shine effect) */}
-                    <polygon 
-                      points="36,8 63,25 63,35 36,28 9,35 9,25" 
-                      className="fill-white/30"
-                    />
-                    {/* Bottom shadow (3D depth) */}
-                    <polygon 
-                      points="36,56 63,49 63,58 36,76 9,58 9,49" 
-                      className="fill-black/10"
+                      strokeWidth="1.5"
                     />
                   </svg>
                   
-                  {/* Loading scan effect */}
+                  {/* Loading skeleton scan effect */}
                   {isLoading && (
                     <div 
                       className="absolute inset-0 overflow-hidden"
                       style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}
                     >
                       <div 
-                        className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-400/40 to-transparent animate-scan"
+                        className="absolute inset-0 bg-gradient-to-b from-transparent via-sky-400/40 to-transparent animate-scan"
                         style={{ animationDelay: `${(index + 7) * 0.1}s` }}
                       />
                     </div>
@@ -1101,27 +980,20 @@ function QueueMatchPage() {
                   
                   {/* Content */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    {isLoading ? (
-                      <div className="flex flex-col items-center">
-                        <div className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin mb-1" />
-                        <span className="text-amber-400/70 text-[10px] font-medium">
-                          {token.symbol}
-                        </span>
-                      </div>
-                    ) : isLocked ? (
+                    {isLocked ? (
                       <>
-                        <svg className="w-4 h-4 text-gray-500 mb-0.5" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className={`w-4 h-4 mb-0.5 transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`} fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                         </svg>
-                        <span className="font-bold text-xs text-center leading-tight text-gray-500">
+                        <span className={`font-bold text-xs text-center leading-tight transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`}>
                           {token.symbol}
                         </span>
                       </>
                     ) : (
                       <span className={`font-bold text-xs text-center leading-tight ${
                         selectedToken === token.symbol 
-                          ? 'text-amber-600' 
-                          : 'text-gray-700 group-hover:text-amber-600'
+                          ? 'text-amber-400' 
+                          : 'text-white/80 group-hover:text-amber-400'
                       }`}>
                         {token.symbol}
                       </span>
@@ -1129,7 +1001,7 @@ function QueueMatchPage() {
                   </div>
                   
                   {/* Selected indicator */}
-                  {selectedToken === token.symbol && !isLoading && (
+                  {selectedToken === token.symbol && (
                     <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center shadow-lg border-2 border-amber-500">
                       <svg className="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
