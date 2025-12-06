@@ -145,6 +145,14 @@ export function useCryptarena() {
     return getAssociatedTokenAddress(mintPubkey, arenaPubkey, true);
   }, []);
 
+  // Derive Whitelisted Token PDA
+  const getWhitelistedTokenPDA = useCallback(async (mintPubkey: PublicKey): Promise<[PublicKey, number]> => {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("whitelist_token_v2"), mintPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+  }, []);
+
   // Fetch global state to get current arena ID
   const fetchGlobalState = useCallback(async (): Promise<GlobalState | null> => {
     try {
@@ -212,6 +220,7 @@ export function useCryptarena() {
       const [arenaPDA] = await getArenaPDA(globalState.currentArenaId);
       const [arenaAssetPDA] = await getArenaAssetPDA(arenaPDA, assetIndex);
       const [playerEntryPDA] = await getPlayerEntryPDA(arenaPDA, publicKey);
+      const [whitelistedTokenPDA] = await getWhitelistedTokenPDA(mint);
       
       // Arena vault is an ATA owned by the arena PDA
       const arenaVault = await getArenaVault(arenaPDA, mint);
@@ -242,6 +251,7 @@ export function useCryptarena() {
           { pubkey: playerEntryPDA, isSigner: false, isWritable: true },
           { pubkey: playerTokenAccount, isSigner: false, isWritable: true },
           { pubkey: arenaVault, isSigner: false, isWritable: true },
+          { pubkey: whitelistedTokenPDA, isSigner: false, isWritable: false },
           { pubkey: publicKey, isSigner: true, isWritable: true },
           { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
@@ -474,10 +484,7 @@ export function useCryptarena() {
       // Winner's token account for the loser's token type
       const winnerTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
 
-      // Treasury token account
-      const treasuryTokenAccount = await getAssociatedTokenAddress(mint, globalState.treasuryWallet);
-
-      // Build instruction
+      // Build instruction (treasury claims separately now)
       const instruction = new TransactionInstruction({
         programId: PROGRAM_ID,
         keys: [
@@ -488,7 +495,6 @@ export function useCryptarena() {
           { pubkey: loserEntryPDA, isSigner: false, isWritable: false },
           { pubkey: arenaVault, isSigner: false, isWritable: true },
           { pubkey: winnerTokenAccount, isSigner: false, isWritable: true },
-          { pubkey: treasuryTokenAccount, isSigner: false, isWritable: true },
           { pubkey: publicKey, isSigner: true, isWritable: false },
           { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         ],
@@ -507,20 +513,6 @@ export function useCryptarena() {
             publicKey,
             winnerTokenAccount,
             publicKey,
-            mint
-          )
-        );
-      }
-
-      // Ensure treasury ATA exists
-      try {
-        await getAccount(connection, treasuryTokenAccount);
-      } catch {
-        transaction.add(
-          createAssociatedTokenAccountInstruction(
-            publicKey,
-            treasuryTokenAccount,
-            globalState.treasuryWallet,
             mint
           )
         );

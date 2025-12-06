@@ -22,22 +22,106 @@ const aceOfSwords = localFont({
   variable: '--font-ace-of-swords',
 });
 
-// Token list with devnet mint addresses
+// Token list with devnet mint addresses and images
 const TOKENS = [
-  { name: 'Solana', symbol: 'SOL', mint: '7a1eh57mbAvEHevFhsofrGYgGPiNBpwwPzQu4KU85EXe' },
-  { name: 'Official Trump', symbol: 'TRUMP', mint: '5aTAebL8dn3s4SFDLaMTC866XomLCJ4vY1Z1VTEALSdh' },
-  { name: 'Pump.fun', symbol: 'PUMP', mint: 'K3vfcZbYhEuEHG6woBVpShURxnVxavhgyP16VM9zChS' },
-  { name: 'Bonk', symbol: 'BONK', mint: 'DkHvWT5Ayk9ciWhz7FU48A2MdEwZekuRdaYVUGtjZdYB' },
-  { name: 'Jupiter', symbol: 'JUP', mint: 'E1JEPG4CcK2AHh3s6FFSHBjdzBqBcYjttL4GBHQGKNGS' },
-  { name: 'Pudgy Penguin', symbol: 'PENGU', mint: 'BhhivFuau4RFEPTwrdvhzvSQuyezc8nJW8vPsBDoLruz' },
-  { name: 'Pyth Network', symbol: 'PYTH', mint: 'Cm8Z4DsQ4SP7zc3FTcTHpzyZ8hMR1adiDSG7Hf45dFMt' },
-  { name: 'Helium', symbol: 'HNT', mint: '8dbowGCfdiL7x3tzuKJfbc4WPpHdqRqsHEeqfd5Wh7xn' },
-  { name: 'Fartcoin', symbol: 'FARTCOIN', mint: '2yaeL5SPximYfKHJMvhsaFfmcoA3XUMcKd7buuq7sFnz' },
-  { name: 'Raydium', symbol: 'RAY', mint: 'Dx67K9UyaHsPy7shTmuC4xuHvKGFcSpfzBQQNEgP3Fcf' },
-  { name: 'Jito', symbol: 'JTO', mint: 'ChMDp2sBn23Zyu2YtGU7M6hQUJzMmMdZ6XmWpsrxRKEr' },
-  { name: 'Kamino', symbol: 'KMNO', mint: '2byoKnAGKFFRKcmrxJ7FeizXH1pw2tqN38E7dLs7ogvg' },
-  { name: 'Meteora', symbol: 'MET', mint: '4YHdgCq49res2mKd4EUBFtk2krmzt3RLaSUVVkgwMH36' },
-  { name: 'Wormhole', symbol: 'W', mint: 'H9wd9H5wAVXBpsf9VtRKMXtSeUGNWHk33UkywWNvWjDi' },
+  { 
+    name: 'Solana', 
+    symbol: 'SOL', 
+    mint: '7a1eh57mbAvEHevFhsofrGYgGPiNBpwwPzQu4KU85EXe',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/53645b0e-c1af-4785-5bee-788e0548bc00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/6e62d62c-c638-43a9-45ef-7b7c77063400/public'
+  },
+  { 
+    name: 'Official Trump', 
+    symbol: 'TRUMP', 
+    mint: '5aTAebL8dn3s4SFDLaMTC866XomLCJ4vY1Z1VTEALSdh',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/3e376b08-9941-489a-a985-70b0ff59ba00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/bad2d191-8df9-43b6-4a46-00b7a564fc00/public'
+  },
+  { 
+    name: 'Pump.fun', 
+    symbol: 'PUMP', 
+    mint: 'K3vfcZbYhEuEHG6woBVpShURxnVxavhgyP16VM9zChS',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/7b8f0b51-d513-45ae-b363-007729824600/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1e6839a0-0bd7-40e5-b597-000ed113e600/public'
+  },
+  { 
+    name: 'Bonk', 
+    symbol: 'BONK', 
+    mint: 'DkHvWT5Ayk9ciWhz7FU48A2MdEwZekuRdaYVUGtjZdYB',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/eef48f24-ce2b-4a48-8749-15372de88200/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/5d0bf0e4-3e46-4c2c-0780-521f8871ba00/public'
+  },
+  { 
+    name: 'Jupiter', 
+    symbol: 'JUP', 
+    mint: 'E1JEPG4CcK2AHh3s6FFSHBjdzBqBcYjttL4GBHQGKNGS',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1e7a795f-3891-4292-10c2-6895db46c700/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/94f91670-6b37-44a0-266a-795a2f2c4200/public'
+  },
+  { 
+    name: 'Pudgy Penguin', 
+    symbol: 'PENGU', 
+    mint: 'BhhivFuau4RFEPTwrdvhzvSQuyezc8nJW8vPsBDoLruz',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/34ccf0fe-8b70-432d-54fd-8491e1450500/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/f9c695a9-0ed4-44dc-06c8-4c345f327000/public'
+  },
+  { 
+    name: 'Pyth Network', 
+    symbol: 'PYTH', 
+    mint: 'Cm8Z4DsQ4SP7zc3FTcTHpzyZ8hMR1adiDSG7Hf45dFMt',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/4949f311-878d-4846-98dd-3c37956c9e00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/dc01a5f9-f706-4666-73fa-7975a9e78900/public'
+  },
+  { 
+    name: 'Helium', 
+    symbol: 'HNT', 
+    mint: '8dbowGCfdiL7x3tzuKJfbc4WPpHdqRqsHEeqfd5Wh7xn',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/8fa845cb-d0f3-4b9f-bbdf-0a0db98d4b00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/d3aafc32-ffd0-4e5f-bf29-50b34a989400/public'
+  },
+  { 
+    name: 'Fartcoin', 
+    symbol: 'FARTCOIN', 
+    mint: '2yaeL5SPximYfKHJMvhsaFfmcoA3XUMcKd7buuq7sFnz',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/5a59acb7-320e-43c9-4338-255d27c55100/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/bccba14b-e8d6-4a61-6f1a-109c5552d700/public'
+  },
+  { 
+    name: 'Raydium', 
+    symbol: 'RAY', 
+    mint: 'Dx67K9UyaHsPy7shTmuC4xuHvKGFcSpfzBQQNEgP3Fcf',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1d46be69-859c-48b6-0944-db3a039f5f00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/53eb773b-364b-4248-5c60-4d0d35dfea00/public'
+  },
+  { 
+    name: 'Jito', 
+    symbol: 'JTO', 
+    mint: 'ChMDp2sBn23Zyu2YtGU7M6hQUJzMmMdZ6XmWpsrxRKEr',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/f85c5172-9836-4baa-6bf0-e63a22039800/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/35993580-89d1-487d-9a36-e55c77e72100/public'
+  },
+  { 
+    name: 'Kamino', 
+    symbol: 'KMNO', 
+    mint: '2byoKnAGKFFRKcmrxJ7FeizXH1pw2tqN38E7dLs7ogvg',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/8be9163e-b761-4982-d9f4-b10bec5fd100/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/5bb386d1-41a5-449d-8d72-b06641584600/public'
+  },
+  { 
+    name: 'Meteora', 
+    symbol: 'MET', 
+    mint: '4YHdgCq49res2mKd4EUBFtk2krmzt3RLaSUVVkgwMH36',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/cf0d3708-0f01-4fb9-8c77-eb2ce597d700/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/7a45aa3d-9e01-40f3-6481-fdaa76926d00/public'
+  },
+  { 
+    name: 'Wormhole', 
+    symbol: 'W', 
+    mint: 'H9wd9H5wAVXBpsf9VtRKMXtSeUGNWHk33UkywWNvWjDi',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/d41f94d9-5d4b-4605-9af1-867f52cec400/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1e4bca1d-11e9-4ea6-166d-1587f86ede00/public'
+  },
 ];
 
 // Champion background images
@@ -314,10 +398,12 @@ function QueueMatchPage() {
 
   const handleTokenSelect = (symbol: string) => {
     setSelectedToken(symbol);
-    // Pick a random background image with fade effect
+    // Use token image as background with fade effect
     setBgImageLoaded(false);
-    const randomIndex = Math.floor(Math.random() * CHAMP_BACKGROUNDS.length);
-    setBackgroundImage(CHAMP_BACKGROUNDS[randomIndex]);
+    const token = TOKENS.find(t => t.symbol === symbol);
+    if (token) {
+      setBackgroundImage(token.image);
+    }
   };
 
   // Handle LOCK IN button click
@@ -363,6 +449,17 @@ function QueueMatchPage() {
     ? (parseFloat(usdAmount) / coinData.currentPrice).toFixed(6)
     : '0.00';
 
+  // Check if user has sufficient balance
+  const hasInsufficientBalance = () => {
+    if (!selectedToken || !usdAmount || !coinData || coinData.currentPrice <= 0) return false;
+    
+    const rawBalance = tokenBalances[selectedToken] ?? 0;
+    const availableBalance = rawBalance / 1e9; // Convert from smallest unit
+    const requiredTokens = parseFloat(usdAmount) / coinData.currentPrice;
+    
+    return availableBalance < requiredTokens;
+  };
+
   return (
     <div className={`fixed inset-0 overflow-hidden bg-[#222732] ${aceOfSwords.variable}`}>
       {/* Default background with gradient light effects (when no champion selected) */}
@@ -387,7 +484,7 @@ function QueueMatchPage() {
             alt="Arena Background"
             fill
             priority
-            className={`object-cover object-center transition-opacity duration-700 ease-in-out ${
+            className={`object-cover object-center transition-opacity duration-700 ease-in-out scale-x-[-1] ${
               bgImageLoaded ? 'opacity-100' : 'opacity-0'
             }`}
             quality={100}
@@ -395,7 +492,7 @@ function QueueMatchPage() {
             onLoad={() => setBgImageLoaded(true)}
           />
           {/* Dark overlay on background - 50% darker */}
-          <div className="absolute inset-0 bg-black/60 z-[1]" />
+          <div className="absolute inset-0 bg-black/30 z-[1]" />
         </>
       )}
       
@@ -548,9 +645,30 @@ function QueueMatchPage() {
                             <span className="text-amber-400 font-bold text-xs">{player.assetSymbol}</span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-zinc-500 text-[10px]">Locked</span>
-                            <span className="text-green-400 font-medium text-xs">${player.usdValue.toFixed(2)}</span>
+                            <span className="text-zinc-500 text-[10px]">Amount</span>
+                            <span className="text-white font-medium text-xs">{player.tokenAmount.toFixed(6)}</span>
                           </div>
+                          {player.actualUsdValue ? (
+                            <>
+                              <div className="flex justify-between items-center">
+                                <span className="text-zinc-500 text-[10px]">Entry Value</span>
+                                <span className="text-cyan-400 font-medium text-xs">${player.actualUsdValue.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-zinc-500 text-[10px]">Locked Value</span>
+                                <span className="text-green-400 font-medium text-xs">${player.usdValue.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-zinc-500 text-[10px]">Entry Price</span>
+                                <span className="text-zinc-400 font-medium text-xs">${player.entryPrice?.toFixed(4)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex justify-between items-center">
+                              <span className="text-zinc-500 text-[10px]">Locked Value</span>
+                              <span className="text-green-400 font-medium text-xs">${player.usdValue.toFixed(2)}</span>
+                            </div>
+                          )}
                         </div>
                         
                         {isCurrentUser && (
@@ -681,7 +799,9 @@ function QueueMatchPage() {
                   {/* Amount Input Row */}
                   <div className="flex items-start gap-4 mb-4">
                     {/* Input */}
-                    <div className="flex-1 bg-white/90 rounded-xl px-5 py-4 flex items-center border border-white/50">
+                    <div className={`flex-1 bg-white/90 rounded-xl px-5 py-4 flex items-center border-2 transition-colors ${
+                      hasInsufficientBalance() ? 'border-red-500' : 'border-white/50'
+                    }`}>
                       <input
                         type="number"
                         value={usdAmount}
@@ -697,8 +817,10 @@ function QueueMatchPage() {
                     {/* Token Equivalent & Balance */}
                     <div className="text-right whitespace-nowrap min-w-[120px]">
                       <p className="text-white font-bold text-lg">~ {tokenAmount} {coinData.symbol}</p>
-                      <p className="text-white/70 text-xs mt-1">Available balance</p>
-                      <p className="text-white/70 text-xs">
+                      <p className={`text-xs mt-2 font-medium ${hasInsufficientBalance() ? 'text-red-400' : 'text-white/90'}`}>
+                        Available balance
+                      </p>
+                      <p className={`font-semibold text-sm ${hasInsufficientBalance() ? 'text-red-400' : 'text-white'}`}>
                         {(() => {
                           const rawBalance = tokenBalances[selectedToken] ?? 0;
                           // Convert from smallest unit (9 decimals for SPL tokens)
@@ -708,6 +830,14 @@ function QueueMatchPage() {
                             : `0 ${coinData.symbol}`;
                         })()}
                       </p>
+                      {hasInsufficientBalance() && (
+                        <p className="text-red-400 text-[10px] mt-1 font-medium flex items-center justify-end gap-1">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          Not enough
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -779,6 +909,23 @@ function QueueMatchPage() {
                     >
                       {!usdAmount ? 'ENTER AMOUNT' : parseFloat(usdAmount) < 10 ? 'MIN $10' : 'MAX $20'}
                     </button>
+                  ) : hasInsufficientBalance() ? (
+                    <div className="space-y-2">
+                      <button 
+                        className="w-full bg-red-500/20 text-red-400 font-black text-xl py-5 rounded-2xl border-2 border-red-500/50 cursor-not-allowed"
+                        disabled
+                      >
+                        INSUFFICIENT BALANCE
+                      </button>
+                      <p className="text-red-400 text-xs text-center">
+                        You need {tokenAmount} {coinData?.symbol} but only have{' '}
+                        {(() => {
+                          const rawBalance = tokenBalances[selectedToken] ?? 0;
+                          const balance = rawBalance / 1e9;
+                          return balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+                        })()} {coinData?.symbol}
+                      </p>
+                    </div>
                   ) : txStatus === 'signing' || txStatus === 'confirming' || isEntering ? (
                     <button 
                       className="w-full bg-amber-400/50 text-gray-900 font-black text-xl py-5 rounded-2xl border-2 border-amber-500/50 cursor-wait flex items-center justify-center gap-3"

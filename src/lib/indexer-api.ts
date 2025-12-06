@@ -10,7 +10,9 @@ export interface PlayerEntry {
   assetIndex: number;
   assetSymbol: string;
   tokenAmount: number;
-  usdValue: number;
+  usdValue: number;  // User's submitted value
+  entryPrice?: number;  // Actual token price at entry time
+  actualUsdValue?: number;  // Actual market value (tokenAmount * entryPrice)
   entryTimestamp: string;
 }
 

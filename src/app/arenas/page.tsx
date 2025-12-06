@@ -24,6 +24,8 @@ interface PlayerEntry {
   assetSymbol: string;
   tokenAmount: number;
   usdValue: number;
+  entryPrice?: number;
+  actualUsdValue?: number;
 }
 
 interface Arena {
@@ -149,7 +151,7 @@ function ArenasPage() {
     
     return (
       <div 
-        className={`group relative backdrop-blur-xl rounded-2xl border overflow-hidden transition-all duration-300 hover:scale-[1.02] cursor-pointer ${
+        className={`group relative backdrop-blur-xl rounded-2xl border transition-all duration-300 hover:scale-[1.02] cursor-pointer ${
           isUserInArena 
             ? 'bg-gradient-to-br from-amber-500/15 to-orange-500/10 border-amber-500/40 shadow-lg shadow-amber-500/20' 
             : isOngoing
@@ -159,7 +161,7 @@ function ArenasPage() {
         onClick={() => router.push(`/arenas/${arena.arenaId}`)}
       >
         {/* Glowing top accent */}
-        <div className={`h-1 w-full ${
+        <div className={`h-1 w-full rounded-t-2xl overflow-hidden ${
           isOngoing 
             ? 'bg-sky-400' 
             : 'bg-zinc-600'
@@ -181,11 +183,24 @@ function ArenasPage() {
             </div>
             
             {/* Pool Amount */}
-            <div className="text-right">
-              <p className="text-xs text-white/50 uppercase tracking-wider mb-1">Pool</p>
-              <p className="text-2xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">
+            <div className="text-right group/pool relative z-[60]">
+              <p className="text-xs text-white/50 uppercase tracking-wider mb-1 flex items-center justify-end gap-1">
+                Pool
+                <svg className="w-3 h-3 text-white/30" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </p>
+              <p className="text-2xl font-bold bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">
                 ${arena.totalPoolUsd.toFixed(0)}
               </p>
+              
+              {/* Tooltip */}
+              <div className="absolute bottom-full right-0 mb-2 opacity-0 group-hover/pool:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999]">
+                <div className="bg-zinc-900/95 backdrop-blur-md rounded-lg px-3 py-2 border border-zinc-700/80 shadow-xl whitespace-nowrap">
+                  <p className="text-white text-xs">Calculated at current market prices</p>
+                  <div className="absolute top-full right-4 -mt-1 border-4 border-transparent border-t-zinc-900/95"></div>
+                </div>
+              </div>
             </div>
           </div>
           
