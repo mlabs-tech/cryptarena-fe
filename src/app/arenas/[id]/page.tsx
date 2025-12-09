@@ -888,9 +888,18 @@ function ArenaDetailPage() {
                     <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Final Results</h3>
                   </div>
 
-                  {/* Hex Chart */}
+                  {/* Hex Chart - Pass final data from arenaAssets */}
                   <div className="flex justify-center overflow-x-auto pb-2">
-                    <HexArenaChart arenaId={arena.arenaId} size={550} refreshInterval={30000} />
+                    <HexArenaChart 
+                      size={550} 
+                      data={arena.arenaAssets?.map(asset => ({
+                        symbol: asset.assetSymbol,
+                        assetIndex: asset.assetIndex,
+                        volatility: asset.priceMovementRaw ? parseFloat(asset.priceMovementRaw) / 1000000 : 0,
+                        startPrice: asset.startPrice,
+                        endPrice: asset.endPrice,
+                      })) || []}
+                    />
                   </div>
                 </div>
               )}

@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { indexerApi, VolatilityPoint } from '@/lib/indexer-api';
+import { useEffect, useRef, useState } from 'react';
 
 // Token colors - distinct colors for each token
 const TOKEN_COLORS: Record<string, string> = {
@@ -21,10 +20,17 @@ const TOKEN_COLORS: Record<string, string> = {
   W: '#F39C12',
 };
 
+interface ExternalChampionData {
+  symbol: string;
+  assetIndex: number;
+  volatility: number; // priceMovementRaw / 1000000
+  startPrice?: number;
+  endPrice?: number;
+}
+
 interface HexArenaChartProps {
-  arenaId: string;
   size?: number;
-  refreshInterval?: number;
+  data: ExternalChampionData[]; // Required: final data for the chart
 }
 
 interface ChampionData {
@@ -33,40 +39,31 @@ interface ChampionData {
   color: string;
   currentVolatility: number;
   rank: number;
-  history: VolatilityPoint[];
   startPrice: number;
 }
 
 export default function HexArenaChart({ 
-  arenaId, 
   size = 700,
-  refreshInterval = 5000 
+  data
 }: HexArenaChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
   
   const [champions, setChampions] = useState<ChampionData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [animatedPositions, setAnimatedPositions] = useState<Record<string, number>>({});
 
-  // Fetch data
-  const fetchData = useCallback(async () => {
-    try {
-      const response = await indexerApi.getArenaVolatility(arenaId, '1m');
-      
-      const champData: ChampionData[] = response.assets
-        .filter(a => a.data.length > 0)
-        .map(asset => ({
-          symbol: asset.symbol,
-          assetIndex: asset.assetIndex,
-          color: TOKEN_COLORS[asset.symbol] || '#ffffff',
-          currentVolatility: asset.data.length > 0 ? asset.data[asset.data.length - 1].volatility : 0,
-          rank: 0,
-          history: asset.data,
-          startPrice: asset.startPrice,
-        }));
+  // Process data into champions
+  useEffect(() => {
+    if (data && data.length > 0) {
+      const champData: ChampionData[] = data.map(item => ({
+        symbol: item.symbol,
+        assetIndex: item.assetIndex,
+        color: TOKEN_COLORS[item.symbol] || '#ffffff',
+        currentVolatility: item.volatility,
+        rank: 0,
+        startPrice: item.startPrice || 0,
+      }));
 
       // Sort by volatility to get rankings
       champData.sort((a, b) => b.currentVolatility - a.currentVolatility);
@@ -75,20 +72,8 @@ export default function HexArenaChart({
       });
 
       setChampions(champData);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch volatility data:', err);
-      setError('Failed to load arena data');
-    } finally {
-      setIsLoading(false);
     }
-  }, [arenaId]);
-
-  useEffect(() => {
-    fetchData();
-    const timer = window.setInterval(fetchData, refreshInterval);
-    return () => window.clearInterval(timer);
-  }, [arenaId, refreshInterval, fetchData]);
+  }, [data]);
 
   // Animate positions smoothly
   useEffect(() => {
@@ -161,7 +146,7 @@ export default function HexArenaChart({
     ctx.clearRect(0, 0, size, size);
 
     // Helper: draw hexagon
-    const drawHexagon = (cx: number, cy: number, radius: number, fill?: string, stroke?: string, lineWidth = 1) => {
+    const drawHexagon = (cx: number, cy: number, radius: number, fill?: string | CanvasGradient, stroke?: string, lineWidth = 1) => {
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
         const angle = (Math.PI / 3) * i - Math.PI / 2;
@@ -394,7 +379,7 @@ export default function HexArenaChart({
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText(`${volatility >= 0 ? '+' : ''}${volatility.toFixed(2)}%`, champX, champY + 22);
+      ctx.fillText(`${volatility >= 0 ? '+' : ''}${volatility.toFixed(4)}%`, champX, champY + 22);
     });
 
     // Draw title
@@ -402,17 +387,13 @@ export default function HexArenaChart({
     ctx.font = 'bold 14px system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('LIVE', 24, 24);
+    ctx.fillText('FINAL RESULTS', 24, 24);
 
-    // Draw live indicator
-    ctx.fillStyle = '#38bdf8';
+    // Draw indicator (amber for final results)
+    ctx.fillStyle = '#fbbf24';
     ctx.beginPath();
-    ctx.arc(66, 30, 4, 0, Math.PI * 2);
+    ctx.arc(130, 30, 4, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.font = '10px system-ui, sans-serif';
-    ctx.fillText(`updates every ${refreshInterval / 1000}s`, 78, 26);
 
     // Draw legend in corner
     ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
@@ -420,31 +401,18 @@ export default function HexArenaChart({
     ctx.textAlign = 'right';
     ctx.fillText('↑ Higher = Winning | Lower = Losing ↓', size - 24, size - 24);
 
-  }, [champions, animatedPositions, size, refreshInterval]);
+  }, [champions, animatedPositions, size]);
 
-  if (isLoading) {
-    return (
-      <div 
-        className="flex items-center justify-center bg-white/5 backdrop-blur-md rounded-xl border border-white/10"
-        style={{ width: size, height: size }}
-      >
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-white/50 text-sm">Loading arena...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || champions.length === 0) {
+  // Show placeholder if no data
+  if (champions.length === 0) {
     return (
       <div 
         className="flex items-center justify-center bg-white/5 backdrop-blur-md rounded-xl border border-white/10"
         style={{ width: size, height: size }}
       >
         <div className="text-center">
-          <p className="text-white/50 text-lg mb-2">Waiting for champions...</p>
-          <p className="text-white/30 text-sm">Data will appear once battle begins</p>
+          <p className="text-white/50 text-lg mb-2">No results available</p>
+          <p className="text-white/30 text-sm">Arena data will appear here</p>
         </div>
       </div>
     );
@@ -522,7 +490,7 @@ export default function HexArenaChart({
                 <span className={`text-xs font-bold flex-shrink-0 ${
                   champ.currentVolatility >= 0 ? 'text-sky-400' : 'text-red-400'
                 }`}>
-                  {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(2)}%
+                  {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(4)}%
                 </span>
               </div>
             ))}

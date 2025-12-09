@@ -56,6 +56,7 @@ function ArenasPage() {
   
   const [ongoingArenas, setOngoingArenas] = useState<Arena[]>([]);
   const [endedArenas, setEndedArenas] = useState<Arena[]>([]);
+  const [canceledArenas, setCanceledArenas] = useState<Arena[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,24 +70,29 @@ function ArenasPage() {
       const data = await response.json();
       const arenas: Arena[] = data.data || [];
       
-      // Separate ongoing and ended
+      // Separate ongoing, ended, and canceled
       const ongoing: Arena[] = [];
       const ended: Arena[] = [];
+      const canceled: Arena[] = [];
       
       arenas.forEach((arena: Arena) => {
         if (arena.status === ArenaStatus.Ended) {
           ended.push(arena);
+        } else if (arena.status === ArenaStatus.Canceled) {
+          canceled.push(arena);
         } else {
           ongoing.push(arena);
         }
       });
       
-      // Sort: ongoing by newest first, ended by newest first
+      // Sort all by newest first
       ongoing.sort((a, b) => Number(b.arenaId) - Number(a.arenaId));
       ended.sort((a, b) => Number(b.arenaId) - Number(a.arenaId));
+      canceled.sort((a, b) => Number(b.arenaId) - Number(a.arenaId));
       
       setOngoingArenas(ongoing);
       setEndedArenas(ended);
+      setCanceledArenas(canceled);
       setError(null);
     } catch (err) {
       console.error('Failed to fetch arenas:', err);
@@ -139,23 +145,28 @@ function ArenasPage() {
     const isUserInArena = arena.playerEntries?.some(
       (entry) => publicKey && entry.playerWallet === publicKey.toBase58()
     );
+    const isCanceled = arena.status === ArenaStatus.Canceled;
     
     return (
       <div 
         className={`group relative backdrop-blur-xl rounded-2xl border transition-all duration-300 hover:scale-[1.02] cursor-pointer ${
           isUserInArena 
             ? 'bg-gradient-to-br from-amber-500/15 to-orange-500/10 border-amber-500/40 shadow-lg shadow-amber-500/20' 
-            : isOngoing
-              ? 'bg-white/5 border-sky-500/30 hover:border-sky-400/50 hover:shadow-lg hover:shadow-sky-500/10'
-              : 'bg-white/5 border-white/10 hover:border-white/20'
+            : isCanceled
+              ? 'bg-white/5 border-red-500/30 hover:border-red-400/50'
+              : isOngoing
+                ? 'bg-white/5 border-sky-500/30 hover:border-sky-400/50 hover:shadow-lg hover:shadow-sky-500/10'
+                : 'bg-white/5 border-white/10 hover:border-white/20'
         }`}
         onClick={() => router.push(`/arenas/${arena.arenaId}`)}
       >
         {/* Glowing top accent */}
         <div className={`h-1 w-full rounded-t-2xl overflow-hidden ${
-          isOngoing 
-            ? 'bg-sky-400' 
-            : 'bg-zinc-600'
+          isCanceled
+            ? 'bg-red-500'
+            : isOngoing 
+              ? 'bg-sky-400' 
+              : 'bg-zinc-600'
         }`} />
         
         <div className="relative p-5">
@@ -296,7 +307,7 @@ function ArenasPage() {
 
         {/* Content */}
         <div className="space-y-10 pb-8">
-          {isLoading && !ongoingArenas.length && !endedArenas.length ? (
+          {isLoading && !ongoingArenas.length && !endedArenas.length && !canceledArenas.length ? (
             <div className="flex items-center justify-center h-64">
               <div className="flex flex-col items-center gap-4 bg-white/5 backdrop-blur-xl px-10 py-8 rounded-2xl border border-white/10">
                 <div className="relative">
@@ -376,6 +387,34 @@ function ArenasPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {endedArenas.map((arena) => (
+                      <ArenaCard key={arena.arenaId} arena={arena} isOngoing={false} />
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* Canceled Arenas Section */}
+              <section>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <h2 className="text-lg font-bold text-white uppercase tracking-wider">
+                    Canceled
+                  </h2>
+                  <span className="text-white/40 font-normal">({canceledArenas.length})</span>
+                </div>
+                
+                {canceledArenas.length === 0 ? (
+                  <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-10 text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-red-400/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </div>
+                    <p className="text-white/40 text-lg">No canceled arenas</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {canceledArenas.map((arena) => (
                       <ArenaCard key={arena.arenaId} arena={arena} isOngoing={false} />
                     ))}
                   </div>
