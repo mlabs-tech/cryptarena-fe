@@ -23,7 +23,7 @@ const TOKEN_COLORS: Record<string, string> = {
 interface ExternalChampionData {
   symbol: string;
   assetIndex: number;
-  volatility: number; // priceMovementRaw / 1000000
+  volatility: number; // priceMovementRaw / 1e12 (12 decimal precision)
   startPrice?: number;
   endPrice?: number;
 }

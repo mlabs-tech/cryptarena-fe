@@ -39,7 +39,7 @@ interface ArenaAsset {
   isWinner: boolean;
   startPrice?: number;
   endPrice?: number;
-  priceMovementRaw?: string;  // Raw value from Solana (10^8 precision). Divide by 1,000,000 to get %
+  priceMovementRaw?: string;  // Raw value from Solana (10^12 precision). Divide by 1,000,000,000,000 to get %
   priceMovementBps?: number;  // For backward compatibility
 }
 
@@ -180,10 +180,10 @@ function ArenaDetailPage() {
     if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
       const volatilityMap = new Map<number, number>();
       arena.arenaAssets?.forEach(asset => {
-        // Use raw value (10^8 precision) - divide by 1,000,000 to get percentage
+        // Use raw value (10^12 precision) - divide by 1,000,000,000,000 to get percentage
         if (asset.priceMovementRaw) {
           const rawValue = parseFloat(asset.priceMovementRaw);
-          volatilityMap.set(asset.assetIndex, rawValue / 1000000);
+          volatilityMap.set(asset.assetIndex, rawValue / 1e12);
         } else if (asset.priceMovementBps !== undefined && asset.priceMovementBps !== null) {
           // Fallback to BPS for older data
           volatilityMap.set(asset.assetIndex, asset.priceMovementBps / 100);
@@ -895,7 +895,7 @@ function ArenaDetailPage() {
                       data={arena.arenaAssets?.map(asset => ({
                         symbol: asset.assetSymbol,
                         assetIndex: asset.assetIndex,
-                        volatility: asset.priceMovementRaw ? parseFloat(asset.priceMovementRaw) / 1000000 : 0,
+                        volatility: asset.priceMovementRaw ? parseFloat(asset.priceMovementRaw) / 1e12 : 0,
                         startPrice: asset.startPrice,
                         endPrice: asset.endPrice,
                       })) || []}
