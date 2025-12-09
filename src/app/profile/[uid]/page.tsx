@@ -80,7 +80,8 @@ interface ArenaAsset {
   isWinner: boolean;
   startPrice: number | null;
   endPrice: number | null;
-  priceMovementBps: number | null;
+  priceMovementRaw: string | null;  // Raw value from Solana (10^8 precision)
+  priceMovementBps: number | null;  // For backward compatibility
 }
 
 interface MatchArena {

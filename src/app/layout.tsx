@@ -3,6 +3,7 @@ import { Orbitron, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { SolanaWalletProvider } from "@/context/WalletContext";
+import { PythStreamProvider } from "@/context/PythStreamContext";
 import ScreenSizeGuard from "@/components/ScreenSizeGuard";
 
 const orbitron = Orbitron({
@@ -33,7 +34,9 @@ export default function RootLayout({
       >
         <AuthProvider>
           <SolanaWalletProvider>
-            <ScreenSizeGuard>{children}</ScreenSizeGuard>
+            <PythStreamProvider>
+              <ScreenSizeGuard>{children}</ScreenSizeGuard>
+            </PythStreamProvider>
           </SolanaWalletProvider>
         </AuthProvider>
       </body>

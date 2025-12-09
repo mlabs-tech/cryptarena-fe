@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { indexerApi, AssetVolatilityData, VolatilityPoint } from '@/lib/indexer-api';
+import { indexerApi, VolatilityPoint } from '@/lib/indexer-api';
+import { usePythStream, useArenaVolatility } from '@/context/PythStreamContext';
 
 // Token colors - distinct colors for each token (including EVM tokens)
 const TOKEN_COLORS: Record<string, string> = {
@@ -31,6 +32,9 @@ interface VolatilityChartProps {
   arenaId: string;
   height?: number;
   refreshInterval?: number;
+  enableStreaming?: boolean; // Set to false for ended/canceled arenas
+  useIndexerPrices?: boolean; // When true (last 10 seconds), use indexer instead of Pyth stream
+  externalVolatilityData?: Map<number, number>; // Optional: pass volatility data from parent (for consistency with participant list)
 }
 
 interface ChampionData {
@@ -38,20 +42,32 @@ interface ChampionData {
   assetIndex: number;
   color: string;
   currentVolatility: number;
+  previousVolatility: number;
   rank: number;
   previousRank: number;
   history: VolatilityPoint[];
   startPrice: number;
+  currentPrice: number;
+  lastUpdateTime: number;
+  justTookLead: boolean;
 }
 
 export default function VolatilityChart({ 
   arenaId, 
   height = 500,
-  refreshInterval = 5000 
+  refreshInterval = 5000,
+  enableStreaming = true,
+  useIndexerPrices = false,
+  externalVolatilityData
 }: VolatilityChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
+  
+  // Use shared Pyth stream context (only if streaming is enabled AND not using indexer prices)
+  const shouldStream = enableStreaming && !useIndexerPrices;
+  const { subscribeToArena, unsubscribeFromArena } = usePythStream();
+  const { data: streamData, isStreaming, lastUpdate } = useArenaVolatility(shouldStream ? arenaId : '');
   
   const [champions, setChampions] = useState<ChampionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,43 +75,58 @@ export default function VolatilityChart({
   const [viewMode, setViewMode] = useState<'live' | 'history'>('live');
   const [historyIndex, setHistoryIndex] = useState(0);
   const [maxHistoryLength, setMaxHistoryLength] = useState(0);
-  const [animatedPositions, setAnimatedPositions] = useState<Record<string, number>>({});
+  const [animatedPositions, setAnimatedPositions] = useState<Record<string, number>>({}); 
+  const [historyData, setHistoryData] = useState<Record<string, VolatilityPoint[]>>({});
 
-  // Fetch data
-  const fetchData = useCallback(async () => {
+  // Initial data fetch from indexer (to get start prices and participant info)
+  const fetchInitialData = useCallback(async () => {
     try {
       const response = await indexerApi.getArenaVolatility(arenaId, '1m');
       
-      // Convert to champion data
-      const champData: ChampionData[] = response.assets
-        .filter(a => a.data.length > 0)
-        .map(asset => ({
+      // Subscribe to Pyth stream with ALL tokens (not just those with history)
+      // This ensures we subscribe even when arena just started and has no price history yet
+      // Don't subscribe if using indexer prices (last 10 seconds)
+      if (shouldStream && response.assets.length > 0) {
+        const tokens = response.assets.map(asset => ({
           symbol: asset.symbol,
           assetIndex: asset.assetIndex,
-          color: TOKEN_COLORS[asset.symbol] || '#ffffff',
-          currentVolatility: asset.data.length > 0 ? asset.data[asset.data.length - 1].volatility : 0,
-          rank: 0,
-          previousRank: 0,
-          history: asset.data,
           startPrice: asset.startPrice,
         }));
-
-      // Sort by volatility to get rankings
-      champData.sort((a, b) => b.currentVolatility - a.currentVolatility);
+        
+        subscribeToArena(arenaId, tokens);
+        
+        // Initialize champions immediately with zero volatility
+        // This prevents "Waiting for champions..." while stream connects
+        if (champions.length === 0) {
+          setChampions(tokens.map((token, idx) => ({
+            symbol: token.symbol,
+            assetIndex: token.assetIndex,
+            color: TOKEN_COLORS[token.symbol] || '#ffffff',
+            currentVolatility: 0,
+            previousVolatility: 0,
+            rank: idx + 1,
+            previousRank: idx + 1,
+            history: [],
+            startPrice: token.startPrice,
+            currentPrice: token.startPrice,
+            lastUpdateTime: Date.now(),
+            justTookLead: false,
+          })));
+        }
+      }
       
-      // Assign ranks
-      champData.forEach((champ, index) => {
-        const existingChamp = champions.find(c => c.symbol === champ.symbol);
-        champ.previousRank = existingChamp?.rank || index + 1;
-        champ.rank = index + 1;
+      // Store history data
+      const historyMap: Record<string, VolatilityPoint[]> = {};
+      response.assets.forEach(asset => {
+        historyMap[asset.symbol] = asset.data;
       });
+      setHistoryData(historyMap);
 
       // Find max history length
-      const maxLen = Math.max(...champData.map(c => c.history.length), 0);
+      const maxLen = Math.max(...response.assets.map(a => a.data.length), 0);
       setMaxHistoryLength(maxLen);
       setHistoryIndex(maxLen - 1);
 
-      setChampions(champData);
       setError(null);
     } catch (err) {
       console.error('Failed to fetch volatility data:', err);
@@ -103,13 +134,102 @@ export default function VolatilityChart({
     } finally {
       setIsLoading(false);
     }
-  }, [arenaId, champions]);
+  }, [arenaId, subscribeToArena, shouldStream, champions.length]);
 
+  // Unsubscribe from Pyth stream and use external volatility data when switching to indexer prices
   useEffect(() => {
-    fetchData();
-    const timer = window.setInterval(fetchData, refreshInterval);
-    return () => window.clearInterval(timer);
-  }, [arenaId, refreshInterval]);
+    if (useIndexerPrices) {
+      console.log('[VolatilityChart] Switching to indexer prices, unsubscribing from Pyth stream');
+      unsubscribeFromArena(arenaId);
+    }
+  }, [useIndexerPrices, arenaId, unsubscribeFromArena]);
+
+  // Track the last external volatility values to avoid unnecessary updates
+  const lastExternalVolatilityRef = useRef<string>('');
+
+  // Update champions from external volatility data (when using indexer prices)
+  useEffect(() => {
+    if (useIndexerPrices && externalVolatilityData && externalVolatilityData.size > 0) {
+      // Create a string representation to compare values (Maps are reference types)
+      const volatilityString = Array.from(externalVolatilityData.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(',');
+      
+      // Skip if values haven't changed
+      if (volatilityString === lastExternalVolatilityRef.current) {
+        return;
+      }
+      lastExternalVolatilityRef.current = volatilityString;
+      
+      console.log('[VolatilityChart] Updating from external volatility data');
+      setChampions(prevChampions => {
+        if (prevChampions.length === 0) return prevChampions;
+        
+        const updatedChampions = prevChampions.map(champ => ({
+          ...champ,
+          currentVolatility: externalVolatilityData.get(champ.assetIndex) ?? champ.currentVolatility,
+          previousVolatility: champ.currentVolatility,
+        }));
+        
+        // Sort by volatility descending and assign ranks
+        updatedChampions.sort((a, b) => b.currentVolatility - a.currentVolatility);
+        updatedChampions.forEach((champ, idx) => {
+          champ.rank = idx + 1;
+          champ.previousRank = idx + 1;
+        });
+        
+        return updatedChampions;
+      });
+    }
+  }, [useIndexerPrices, externalVolatilityData]);
+
+  // Update champions from stream data (only when NOT using indexer prices)
+  useEffect(() => {
+    if (streamData.length > 0 && !useIndexerPrices) {
+      setChampions(streamData.map(d => ({
+        symbol: d.symbol,
+        assetIndex: d.assetIndex,
+        color: TOKEN_COLORS[d.symbol] || '#ffffff',
+        currentVolatility: d.volatility,
+        previousVolatility: d.previousVolatility,
+        rank: d.rank,
+        previousRank: d.previousRank,
+        history: historyData[d.symbol] || [],
+        startPrice: d.startPrice,
+        currentPrice: d.currentPrice,
+        lastUpdateTime: d.lastUpdateTime,
+        justTookLead: d.justTookLead,
+      })));
+    }
+  }, [streamData, historyData, useIndexerPrices]);
+
+  // Initial load and cleanup
+  useEffect(() => {
+    fetchInitialData();
+
+    // Refresh history from indexer periodically
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await indexerApi.getArenaVolatility(arenaId, '1m');
+        const historyMap: Record<string, VolatilityPoint[]> = {};
+        response.assets.forEach(asset => {
+          historyMap[asset.symbol] = asset.data;
+        });
+        setHistoryData(historyMap);
+        setMaxHistoryLength(Math.max(...response.assets.map(a => a.data.length), 0));
+      } catch (err) {
+        console.error('Failed to refresh history:', err);
+      }
+    }, refreshInterval);
+
+    return () => {
+      window.clearInterval(timer);
+      if (shouldStream) {
+        unsubscribeFromArena(arenaId);
+      }
+    };
+  }, [arenaId, refreshInterval, fetchInitialData, unsubscribeFromArena, shouldStream]);
 
   // Animate positions smoothly
   useEffect(() => {
@@ -216,16 +336,25 @@ export default function VolatilityChart({
     ctx.textAlign = 'left';
     ctx.fillText('LIVE', PADDING.left, 28);
 
-    // Draw live indicator dot
-    ctx.fillStyle = '#38bdf8';
+    // Draw live indicator dot (pulsing if streaming)
+    ctx.fillStyle = isStreaming ? '#22c55e' : '#38bdf8';
     ctx.beginPath();
     ctx.arc(PADDING.left + 42, 24, 4, 0, Math.PI * 2);
     ctx.fill();
     
-    // Draw sync interval info
+    // Draw streaming status
     ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
     ctx.font = '10px system-ui, sans-serif';
-    ctx.fillText(`updates every ${refreshInterval / 1000}s`, PADDING.left + 55, 28);
+    const statusText = isStreaming ? 'real-time streaming' : `updates every ${refreshInterval / 1000}s`;
+    ctx.fillText(statusText, PADDING.left + 55, 28);
+    
+    // Draw last update time if streaming
+    if (isStreaming && lastUpdate) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.font = '9px system-ui, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`last: ${lastUpdate.toLocaleTimeString()}`, width - PADDING.right, 28);
+    }
 
     // Draw zero line (starting position)
     const zeroX = PADDING.left + ((0 - minVol) / (maxVol - minVol)) * (width - PADDING.left - PADDING.right);
@@ -269,10 +398,22 @@ export default function VolatilityChart({
     );
 
     // Draw each champion
+    const circleRadius = 18; // Increased from 12 (50% larger)
+    const now = Date.now();
+    
     sortedChampions.forEach((champ, displayIndex) => {
       const trackY = PADDING.top + displayIndex * trackHeight + trackHeight / 2;
       const volatility = displayPositions[champ.symbol] ?? 0;
       const champX = PADDING.left + ((volatility - minVol) / (maxVol - minVol)) * (width - PADDING.left - PADDING.right);
+      
+      // Check if volatility recently changed (flash effect)
+      const timeSinceUpdate = now - champ.lastUpdateTime;
+      const isFlashing = timeSinceUpdate < 500; // Flash for 500ms
+      const flashIntensity = isFlashing ? Math.cos((timeSinceUpdate / 500) * Math.PI) * 0.5 + 0.5 : 0;
+      
+      // Check if this is the leader and just took the lead
+      const isLeader = displayIndex === 0;
+      const isNewLeader = champ.justTookLead;
 
       // Draw track line
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
@@ -282,14 +423,14 @@ export default function VolatilityChart({
       ctx.lineTo(width - PADDING.right, trackY);
       ctx.stroke();
 
-      // Draw energy trail
-      const trailLength = Math.min(champX - PADDING.left, 120);
+      // Draw energy trail (larger for leader)
+      const trailLength = Math.min(champX - PADDING.left, isLeader ? 150 : 120);
       const gradient = ctx.createLinearGradient(champX - trailLength, trackY, champX, trackY);
       gradient.addColorStop(0, 'transparent');
-      gradient.addColorStop(1, champ.color + '40');
+      gradient.addColorStop(1, champ.color + (isLeader ? '60' : '40'));
       
       ctx.fillStyle = gradient;
-      ctx.fillRect(champX - trailLength, trackY - 6, trailLength, 12);
+      ctx.fillRect(champX - trailLength, trackY - 8, trailLength, 16);
 
       // Draw rank badge
       const rankColors = ['#FFD700', '#C0C0C0', '#CD7F32'];
@@ -312,26 +453,42 @@ export default function VolatilityChart({
       ctx.textAlign = 'left';
       ctx.fillText(champ.symbol, 36, trackY + 1);
 
-      // Draw champion marker
+      // Draw glow effect for new leader or flashing
+      if (isNewLeader || (isLeader && isFlashing)) {
+        const glowRadius = circleRadius + 8 + (isNewLeader ? 4 : flashIntensity * 4);
+        const glowGradient = ctx.createRadialGradient(champX, trackY, circleRadius, champX, trackY, glowRadius);
+        glowGradient.addColorStop(0, isNewLeader ? '#FFD70080' : champ.color + '60');
+        glowGradient.addColorStop(1, 'transparent');
+        ctx.fillStyle = glowGradient;
+        ctx.beginPath();
+        ctx.arc(champX, trackY, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw champion marker (50% larger)
       ctx.beginPath();
-      ctx.arc(champX, trackY, 12, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.arc(champX, trackY, circleRadius, 0, Math.PI * 2);
+      ctx.fillStyle = isNewLeader ? 'rgba(255, 215, 0, 0.3)' : 'rgba(0, 0, 0, 0.6)';
       ctx.fill();
-      ctx.strokeStyle = champ.color;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isNewLeader ? '#FFD700' : champ.color;
+      ctx.lineWidth = isNewLeader ? 3 : 2;
       ctx.stroke();
 
-      // Draw symbol in circle
-      ctx.fillStyle = champ.color;
-      ctx.font = 'bold 7px system-ui, sans-serif';
+      // Draw symbol in circle (larger font)
+      ctx.fillStyle = isNewLeader ? '#FFD700' : champ.color;
+      ctx.font = 'bold 9px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const shortSymbol = champ.symbol.length > 4 ? champ.symbol.slice(0, 3) : champ.symbol;
       ctx.fillText(shortSymbol, champX, trackY);
 
-      // Draw volatility on right
-      ctx.fillStyle = volatility >= 0 ? '#38bdf8' : '#ef4444';
-      ctx.font = 'bold 11px monospace';
+      // Draw volatility on right with flash effect
+      const volatilityFlash = isFlashing ? Math.floor(flashIntensity * 255) : 0;
+      const baseColor = volatility >= 0 ? [56, 189, 248] : [239, 68, 68]; // sky-400 or red-500
+      const flashColor = `rgb(${Math.min(255, baseColor[0] + volatilityFlash)}, ${Math.min(255, baseColor[1] + volatilityFlash)}, ${Math.min(255, baseColor[2] + volatilityFlash)})`;
+      
+      ctx.fillStyle = flashColor;
+      ctx.font = isFlashing ? 'bold 12px monospace' : 'bold 11px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(
         `${volatility >= 0 ? '+' : ''}${volatility.toFixed(4)}%`,
@@ -345,23 +502,24 @@ export default function VolatilityChart({
         ctx.fillStyle = change > 0 ? '#38bdf8' : '#ef4444';
         ctx.font = '9px system-ui, sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(change > 0 ? `▲${change}` : `▼${Math.abs(change)}`, width - 75, trackY + 1);
+        ctx.fillText(change > 0 ? `▲${change}` : `▼${Math.abs(change)}`, width - 80, trackY + 1);
       }
     });
 
-    // Draw leader crown/star
+    // Draw leader crown/star with animation
     if (sortedChampions.length > 0) {
       const leader = sortedChampions[0];
       const leaderVol = displayPositions[leader.symbol] ?? 0;
       const leaderX = PADDING.left + ((leaderVol - minVol) / (maxVol - minVol)) * (width - PADDING.left - PADDING.right);
       const leaderY = PADDING.top + trackHeight / 2;
       
-      ctx.font = '12px system-ui, sans-serif';
+      // Larger crown for new leader
+      ctx.font = leader.justTookLead ? '16px system-ui, sans-serif' : '14px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('⭐', leaderX, leaderY - 18);
+      ctx.fillText('👑', leaderX, leaderY - circleRadius - 6);
     }
 
-  }, [champions, animatedPositions, height, viewMode, historyIndex, refreshInterval]);
+  }, [champions, animatedPositions, height, viewMode, historyIndex, refreshInterval, isStreaming, lastUpdate]);
 
   // Handle history slider
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -389,8 +547,9 @@ export default function VolatilityChart({
         style={{ height }}
       >
         <div className="text-center">
-          <p className="text-white/50 text-lg mb-2">Waiting for champions...</p>
-          <p className="text-white/30 text-sm">Price data will appear once the battle begins</p>
+          <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-white/50 text-lg mb-2">Connecting to price feed...</p>
+          <p className="text-white/30 text-sm">Real-time data will appear shortly</p>
         </div>
       </div>
     );
@@ -398,6 +557,17 @@ export default function VolatilityChart({
 
   return (
     <div className="relative">
+      {/* Streaming indicator */}
+      {isStreaming && viewMode === 'live' && (
+        <div className="absolute top-3 left-4 z-10 flex items-center gap-2 px-2 py-1 bg-green-500/20 rounded-lg border border-green-500/30">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          <span className="text-green-400 text-xs font-medium">Pyth Stream</span>
+        </div>
+      )}
+
       {/* View mode toggle */}
       <div className="absolute top-3 right-4 z-10 flex gap-2">
         <button
@@ -454,30 +624,65 @@ export default function VolatilityChart({
         </div>
       )}
 
-      {/* Leaderboard summary */}
-      <div className="mt-4 grid grid-cols-5 gap-2">
-        {champions.slice(0, 5).map((champ, idx) => (
-          <div 
-            key={champ.symbol}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg backdrop-blur-sm border transition-all ${
-              idx === 0 
-                ? 'bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/10' 
-                : 'bg-white/5 border-white/10 hover:bg-white/10'
-            }`}
-          >
-            <span className={`text-xs font-bold ${
-              idx === 0 ? 'text-amber-400' : idx === 1 ? 'text-zinc-300' : idx === 2 ? 'text-orange-400' : 'text-white/40'
-            }`}>
-              {idx === 0 ? '1st' : idx === 1 ? '2nd' : idx === 2 ? '3rd' : `#${idx + 1}`}
+      {/* Leaderboard summary - Live Standings */}
+      <div className="mt-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-white/60 text-xs font-medium uppercase tracking-wider">Live Standings</span>
+          {isStreaming && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
             </span>
-            <span className="text-white text-xs font-medium">{champ.symbol}</span>
-            <span className={`text-xs font-bold ml-auto ${
-              champ.currentVolatility >= 0 ? 'text-sky-400' : 'text-red-400'
-            }`}>
-              {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(4)}%
-            </span>
-          </div>
-        ))}
+          )}
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {champions.slice(0, 5).map((champ, idx) => {
+            const isFlashing = Date.now() - champ.lastUpdateTime < 500;
+            const isNewLeader = champ.justTookLead;
+            
+            return (
+              <div 
+                key={champ.symbol}
+                className={`relative flex items-center gap-2 px-3 py-2 rounded-lg backdrop-blur-sm border transition-all overflow-hidden ${
+                  isNewLeader
+                    ? 'bg-amber-500/30 border-amber-400 shadow-lg shadow-amber-500/30 animate-pulse'
+                    : idx === 0 
+                      ? 'bg-amber-500/10 border-amber-500/30 shadow-lg shadow-amber-500/10' 
+                      : 'bg-white/5 border-white/10 hover:bg-white/10'
+                } ${isFlashing && !isNewLeader ? 'ring-2 ring-sky-400/50' : ''}`}
+              >
+                {/* Flash overlay effect */}
+                {isFlashing && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_0.5s_ease-out]" />
+                )}
+                
+                {/* New leader celebration effect */}
+                {isNewLeader && (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/30 to-amber-500/0 animate-[shimmer_1s_ease-in-out_infinite]" />
+                    <span className="absolute -top-1 -right-1 text-sm">🔥</span>
+                  </>
+                )}
+                
+                <span className={`relative z-10 text-xs font-bold ${
+                  isNewLeader ? 'text-amber-300' : idx === 0 ? 'text-amber-400' : idx === 1 ? 'text-zinc-300' : idx === 2 ? 'text-orange-400' : 'text-white/40'
+                }`}>
+                  {idx === 0 ? '1st' : idx === 1 ? '2nd' : idx === 2 ? '3rd' : `#${idx + 1}`}
+                </span>
+                <span className={`relative z-10 text-xs font-medium ${isNewLeader ? 'text-amber-100' : 'text-white'}`}>
+                  {champ.symbol}
+                </span>
+                <span className={`relative z-10 text-xs font-bold ml-auto transition-all ${
+                  isFlashing 
+                    ? 'text-white scale-110' 
+                    : champ.currentVolatility >= 0 ? 'text-sky-400' : 'text-red-400'
+                }`}>
+                  {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(4)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

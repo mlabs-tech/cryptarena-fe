@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet } from '@/context/WalletContext';
+import { useArenaVolatility } from '@/context/PythStreamContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
 import VolatilityChart from '@/components/VolatilityChart';
 import HexArenaChart from '@/components/HexArenaChart';
-import SpaghettiChart from '@/components/SpaghettiChart';
 import { indexerApi } from '@/lib/indexer-api';
 import Image from 'next/image';
 import localFont from 'next/font/local';
@@ -39,7 +39,8 @@ interface ArenaAsset {
   isWinner: boolean;
   startPrice?: number;
   endPrice?: number;
-  priceMovementBps?: number;
+  priceMovementRaw?: string;  // Raw value from Solana (10^8 precision). Divide by 1,000,000 to get %
+  priceMovementBps?: number;  // For backward compatibility
 }
 
 interface ArenaDetail {
@@ -96,6 +97,26 @@ function ArenaDetailPage() {
   const [chartView, setChartView] = useState<'standard' | 'hex' | 'spaghetti'>('standard');
   const [volatilityData, setVolatilityData] = useState<Map<number, number>>(new Map());
   const [currentTime, setCurrentTime] = useState(new Date());
+  
+  // Track flash effects for participants
+  const [flashingAssets, setFlashingAssets] = useState<Set<number>>(new Set());
+  const [newLeader, setNewLeader] = useState<number | null>(null);
+  
+  // Countdown state for arena ending
+  const [endCountdown, setEndCountdown] = useState<number | null>(null);
+  const [useIndexerPrices, setUseIndexerPrices] = useState(false);
+  const [isArenaEnding, setIsArenaEnding] = useState(false); // True when countdown <= 0 but not yet transitioned
+  const [isLastTenSeconds, setIsLastTenSeconds] = useState(false); // True when countdown <= 10s (slow down Pyth)
+  const [pendingEndedTransition, setPendingEndedTransition] = useState(false); // Delay before showing Ended state
+  const [displayedStatus, setDisplayedStatus] = useState<number | null>(null); // What status to show in UI
+  const [lastStreamUpdateTime, setLastStreamUpdateTime] = useState<number>(0); // For throttling stream updates
+
+  // Only enable Pyth streaming for Active arenas (including "ending" state) until we get final prices
+  // Stop streaming when useIndexerPrices becomes true (after arena is Ended on-chain)
+  const shouldEnableStreaming = (arena?.status === ArenaStatus.Active || (displayedStatus === ArenaStatus.Active && pendingEndedTransition)) && !useIndexerPrices;
+  const { data: streamVolatility, isStreaming: isStreamingVolatility } = useArenaVolatility(
+    shouldEnableStreaming ? arenaId : ''
+  );
 
   // Fetch arena details
   const fetchArena = useCallback(async () => {
@@ -155,12 +176,16 @@ function ArenaDetailPage() {
   const fetchVolatilityData = useCallback(async () => {
     if (!arenaId || !arena) return;
     
-    // For ended arenas, use the stored priceMovementBps (final volatility)
-    if (arena.status === ArenaStatus.Ended) {
+    // For ended or canceled arenas, use the stored priceMovementRaw (final volatility)
+    if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
       const volatilityMap = new Map<number, number>();
-      arena.arenaAssets.forEach(asset => {
-        if (asset.priceMovementBps !== undefined && asset.priceMovementBps !== null) {
-          // Convert from basis points to percentage
+      arena.arenaAssets?.forEach(asset => {
+        // Use raw value (10^8 precision) - divide by 1,000,000 to get percentage
+        if (asset.priceMovementRaw) {
+          const rawValue = parseFloat(asset.priceMovementRaw);
+          volatilityMap.set(asset.assetIndex, rawValue / 1000000);
+        } else if (asset.priceMovementBps !== undefined && asset.priceMovementBps !== null) {
+          // Fallback to BPS for older data
           volatilityMap.set(asset.assetIndex, asset.priceMovementBps / 100);
         }
       });
@@ -199,23 +224,139 @@ function ArenaDetailPage() {
     if (arena) {
       fetchVolatilityData();
       
-      // Poll for updates every 5 seconds - fetch both arena data and volatility
+      // Poll every 2s when arena is ending (to detect status change quickly), otherwise every 5s
+      const pollInterval = isArenaEnding ? 2000 : 5000;
+      
       const interval = setInterval(() => {
-        fetchArena(); // Refresh arena data (including status)
+        fetchArena(); // Refresh arena data (including status and end prices from Solana)
         fetchVolatilityData(); // Refresh volatility data
-      }, 5000);
+      }, pollInterval);
       
       return () => clearInterval(interval);
     }
-  }, [arena, fetchVolatilityData, fetchArena]);
+  }, [arena, fetchVolatilityData, fetchArena, isArenaEnding]);
 
-  // Update current time every second to re-evaluate time-based conditions
+  // Update current time and countdown every second
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
+      
+      // Calculate countdown for active arenas
+      if (arena?.status === ArenaStatus.Active && arena.endTimestamp) {
+        const endTime = new Date(arena.endTimestamp).getTime();
+        const now = Date.now();
+        const remaining = Math.max(0, endTime - now);
+        setEndCountdown(remaining);
+        
+        // When countdown <= 10 seconds, slow down Pyth updates
+        if (remaining <= 10000 && !isLastTenSeconds) {
+          setIsLastTenSeconds(true);
+          console.log('[Arena] Last 10 seconds - slowing down Pyth updates to 5s');
+        }
+        
+        // When countdown reaches 0, set "arena is ending" state
+        if (remaining <= 0 && !isArenaEnding) {
+          setIsArenaEnding(true);
+          console.log('[Arena] Countdown reached 0 - arena is ending');
+        }
+      } else {
+        setEndCountdown(null);
+      }
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [arena?.status, arena?.endTimestamp, isArenaEnding, isLastTenSeconds]);
+
+  // Sync displayed status with arena status (except during ending transition)
+  useEffect(() => {
+    if (arena && !pendingEndedTransition) {
+      // If arena becomes Active, update displayedStatus
+      if (arena.status === ArenaStatus.Active && displayedStatus !== ArenaStatus.Active) {
+        console.log('[Arena] Arena became Active, updating displayedStatus');
+        setDisplayedStatus(ArenaStatus.Active);
+      }
+      // Initialize displayedStatus if null
+      else if (displayedStatus === null) {
+        setDisplayedStatus(arena.status);
+      }
+    }
+  }, [arena, displayedStatus, pendingEndedTransition]);
+
+  // Handle transition when arena becomes Ended or Canceled - delay UI update by 10 seconds
+  // During this time, show the final prices from Solana program (via indexer)
+  useEffect(() => {
+    const isEnded = arena?.status === ArenaStatus.Ended;
+    const isCanceled = arena?.status === ArenaStatus.Canceled;
+    
+    if ((isEnded || isCanceled) && displayedStatus === ArenaStatus.Active && !pendingEndedTransition) {
+      console.log(`[Arena] Arena ${isEnded ? 'ended' : 'canceled'} on-chain, starting 10s transition...`);
+      console.log('[Arena] Stopping Pyth stream, showing final indexed prices');
+      setPendingEndedTransition(true);
+      setUseIndexerPrices(true); // Stop Pyth stream, use final stored prices
+      
+      // Fetch final volatility data immediately (this has startPrice, endPrice, priceMovement from Solana)
+      fetchVolatilityData();
+      
+      // After 10 seconds, update the displayed status to show Winners/Losers
+      setTimeout(() => {
+        console.log('[Arena] Transition complete - showing final state');
+        setDisplayedStatus(arena?.status ?? ArenaStatus.Ended);
+        setIsArenaEnding(false);
+        setPendingEndedTransition(false);
+        setIsLastTenSeconds(false);
+      }, 10000);
+    }
+  }, [arena?.status, displayedStatus, pendingEndedTransition, fetchVolatilityData]);
+
+  // Sync stream volatility data with local state (for real-time updates)
+  // Skip when using indexer prices, throttle to 5s when in last 10 seconds
+  useEffect(() => {
+    if (streamVolatility.length > 0 && arena?.status === ArenaStatus.Active && !useIndexerPrices) {
+      const now = Date.now();
+      
+      // Throttle updates to every 5 seconds when in last 10 seconds of countdown
+      if (isLastTenSeconds && (now - lastStreamUpdateTime) < 5000) {
+        return; // Skip this update
+      }
+      
+      const volatilityMap = new Map<number, number>();
+      const newFlashing = new Set<number>();
+      
+      // Get previous leader
+      const prevLeaderEntry = [...volatilityData.entries()].sort((a, b) => b[1] - a[1])[0];
+      const prevLeader = prevLeaderEntry ? prevLeaderEntry[0] : null;
+      
+      streamVolatility.forEach(item => {
+        volatilityMap.set(item.assetIndex, item.volatility);
+        
+        // Check if this asset's volatility just changed (for flash effect)
+        const prevVol = volatilityData.get(item.assetIndex);
+        if (prevVol !== undefined && Math.abs(item.volatility - prevVol) > 0.0001) {
+          newFlashing.add(item.assetIndex);
+        }
+        
+        // Check if this is the new leader
+        if (item.justTookLead) {
+          setNewLeader(item.assetIndex);
+          setTimeout(() => setNewLeader(null), 2000);
+        }
+      });
+      
+      setVolatilityData(volatilityMap);
+      setLastStreamUpdateTime(now); // Track when we last updated
+      
+      // Set flashing and clear after animation
+      if (newFlashing.size > 0) {
+        setFlashingAssets(prev => new Set([...prev, ...newFlashing]));
+        setTimeout(() => {
+          setFlashingAssets(prev => {
+            const updated = new Set(prev);
+            newFlashing.forEach(id => updated.delete(id));
+            return updated;
+          });
+        }, 500);
+      }
+    }
+  }, [streamVolatility, arena?.status, useIndexerPrices, isLastTenSeconds, lastStreamUpdateTime]);
 
   if (!user) return null;
 
@@ -314,6 +455,23 @@ function ArenaDetailPage() {
     return leadingAssetIndex;
   };
 
+  // Get asset prices from arenaAssets (for ended/canceled arenas)
+  const getAssetPrices = (assetIndex: number): { startPrice: number | null; endPrice: number | null } => {
+    const asset = arena?.arenaAssets?.find(a => a.assetIndex === assetIndex);
+    return {
+      startPrice: asset?.startPrice ?? null,
+      endPrice: asset?.endPrice ?? null,
+    };
+  };
+
+  // Format price for display
+  const formatPrice = (price: number | null): string => {
+    if (price === null) return '-';
+    if (price >= 1) return `$${price.toFixed(2)}`;
+    if (price >= 0.01) return `$${price.toFixed(4)}`;
+    return `$${price.toFixed(8)}`;
+  };
+
   // Player card component
   const PlayerCard = ({ entry, showVolatility = true }: { entry: PlayerEntry; showVolatility?: boolean }) => {
     const profile = userProfiles[entry.playerWallet];
@@ -325,18 +483,31 @@ function ArenaDetailPage() {
     const leadingAsset = getLeadingAsset();
     const isLeading = leadingAsset !== null && entry.assetIndex === leadingAsset && !playerIsWinner;
     
+    // Flash effects from real-time stream
+    const isFlashing = flashingAssets.has(entry.assetIndex);
+    const isNewLeaderAsset = newLeader === entry.assetIndex;
+    
     return (
       <div 
         className={`relative backdrop-blur-xl rounded-xl border overflow-hidden transition-all hover:scale-[1.01] ${
-          playerIsWinner 
-            ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10' 
-            : isLeading
-              ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40'
-              : isCurrentUser 
-                ? 'bg-gradient-to-r from-white/8 to-white/4 border-white/20' 
-                : 'bg-white/5 border-white/10 hover:border-white/20'
+          isNewLeaderAsset
+            ? 'bg-gradient-to-r from-amber-500/30 to-yellow-500/20 border-amber-400 shadow-lg shadow-amber-500/30 animate-pulse'
+            : playerIsWinner 
+              ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10' 
+              : isLeading
+                ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40'
+                : isCurrentUser 
+                  ? 'bg-gradient-to-r from-white/8 to-white/4 border-white/20' 
+                  : 'bg-white/5 border-white/10 hover:border-white/20'
         }`}
       >
+        {/* New leader celebration effect */}
+        {isNewLeaderAsset && (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/30 to-amber-500/0 animate-[shimmer_1s_ease-in-out_infinite] pointer-events-none" />
+            <span className="absolute top-2 right-2 text-lg animate-bounce">🔥</span>
+          </>
+        )}
         {/* Winner badge for ended arenas */}
         {playerIsWinner && arena?.status === ArenaStatus.Ended && (
           <div className="absolute top-0 left-0 bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 px-4 py-1.5 text-xs font-bold rounded-br-xl shadow-lg">
@@ -400,14 +571,49 @@ function ArenaDetailPage() {
             {/* Volatility (for live/active arenas) */}
             {showVolatility && arena?.status === ArenaStatus.Active && (
               <div className="text-center px-3">
-                <p className={`text-lg font-bold ${
-                  volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
+                <p className={`font-bold transition-all duration-300 ${
+                  isFlashing 
+                    ? 'text-white text-xl scale-110' 
+                    : `text-lg ${volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'}`
                 }`}>
                   {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
                 </p>
-                <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
+                <div className="flex items-center justify-center gap-1">
+                  <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
+                  {isStreamingVolatility && !useIndexerPrices && (
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
+                    </span>
+                  )}
+                </div>
               </div>
             )}
+
+            {/* Start/End Prices (for ended/canceled arenas - only after transition completes) */}
+            {(displayedStatus === ArenaStatus.Ended || displayedStatus === ArenaStatus.Canceled) && (() => {
+              const prices = getAssetPrices(entry.assetIndex);
+              return (
+                <div className="flex gap-4">
+                  <div className="text-center px-2">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Start</p>
+                    <p className="text-sm font-medium text-white/70">{formatPrice(prices.startPrice)}</p>
+                  </div>
+                  <div className="text-center px-2">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">End</p>
+                    <p className="text-sm font-medium text-white/70">{formatPrice(prices.endPrice)}</p>
+                  </div>
+                  <div className="text-center px-2">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Change</p>
+                    <p className={`text-sm font-bold ${
+                      volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
+                    }`}>
+                      {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
             
             {/* Token Symbol */}
             <div className="text-right">
@@ -512,10 +718,10 @@ function ArenaDetailPage() {
               {arena.status === ArenaStatus.Waiting && (
                 <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/20 backdrop-blur-xl rounded-2xl border border-amber-500/30 p-6 mb-6 animate-pulse">
                   <div className="flex items-center justify-center gap-4">
-                    <svg className="w-8 h-8 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                    {/* <svg className="w-8 h-8 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
+                    </svg> */}
                     <div className="text-center">
                       <h2 
                         className="text-2xl text-amber-400 tracking-wider mb-1"
@@ -525,6 +731,30 @@ function ArenaDetailPage() {
                       </h2>
                       <p className="text-amber-400/70 text-sm">
                         The arena will begin automatically. Please wait...
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Arena Ending Banner - show when countdown reached 0 or in transition */}
+              {(isArenaEnding || pendingEndedTransition) && (
+                <div className="bg-gradient-to-r from-orange-500/20 via-amber-500/10 to-orange-500/20 backdrop-blur-xl rounded-2xl border border-orange-500/30 p-6 mb-6 animate-pulse">
+                  <div className="flex items-center justify-center gap-4">
+                    <svg className="w-8 h-8 text-orange-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <div className="text-center">
+                      <h2 
+                        className={`text-2xl text-orange-400 tracking-wider mb-1 ${aceOfSwords.className}`}
+                      >
+                        {pendingEndedTransition ? 'FINALIZING RESULTS' : 'ARENA ENDING'}
+                      </h2>
+                      <p className="text-orange-400/70 text-sm">
+                        {pendingEndedTransition 
+                          ? 'Calculating winner and final standings...' 
+                          : 'Final prices are being locked in...'}
                       </p>
                     </div>
                   </div>
@@ -548,7 +778,10 @@ function ArenaDetailPage() {
                       >
                         ARENA #{arena.arenaId}
                       </h1>
-                      {getStatusBadge(arena.status, arena.statusLabel)}
+                      {getStatusBadge(
+                        displayedStatus ?? arena.status, 
+                        isArenaEnding || pendingEndedTransition ? 'Ending' : arena.statusLabel
+                      )}
                     </div>
                     <p className="text-white/30 text-xs font-mono bg-white/5 px-2 py-1 rounded inline-block">{arena.pda}</p>
                   </div>
@@ -589,11 +822,22 @@ function ArenaDetailPage() {
                     <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Started</p>
                     <p className="text-sm font-medium text-white/70">{formatTime(arena.startTimestamp)}</p>
                   </div>
-                  <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 text-center border border-white/5">
-                    {arena.status === ArenaStatus.Active ? (
-                      // Check if end time is in the past
-                      arena.endTimestamp && new Date(arena.endTimestamp) < currentTime ? (
-                        <p className="text-sm font-medium text-orange-400 animate-pulse">ARENA IS ENDING</p>
+                  <div className={`backdrop-blur-sm rounded-xl p-4 text-center border ${
+                    isArenaEnding || pendingEndedTransition
+                      ? 'bg-amber-500/10 border-amber-500/30'
+                      : 'bg-white/5 border-white/5'
+                  }`}>
+                    {displayedStatus === ArenaStatus.Active || displayedStatus === null ? (
+                      // Show countdown for active arenas
+                      isArenaEnding || pendingEndedTransition ? (
+                        <p className={`text-sm font-medium text-orange-400 animate-pulse ${aceOfSwords.className}`}>ARENA ENDING...</p>
+                      ) : endCountdown !== null ? (
+                        <>
+                          <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Ends In</p>
+                          <p className={`text-xl font-bold text-amber-400 tabular-nums ${aceOfSwords.className}`}>
+                            {Math.floor(endCountdown / 60000).toString().padStart(2, '0')}:{Math.floor((endCountdown % 60000) / 1000).toString().padStart(2, '0')}
+                          </p>
+                        </>
                       ) : (
                         <>
                           <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Ending On</p>
@@ -611,83 +855,50 @@ function ArenaDetailPage() {
                 
               </div>
 
-              {/* Chart Section - Show for Active arenas */}
-              {arena.status === ArenaStatus.Active && (
+              {/* Chart Section - Show VolatilityChart for Active arenas (including ending/transition) */}
+              {(displayedStatus === ArenaStatus.Active || displayedStatus === null) && arena.status !== ArenaStatus.Waiting && (
                 <div className="mb-6">
-                  {/* View Mode Toggle */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-                      <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Live Battle</h3>
-                    </div>
-                    <div className="flex items-center gap-1 bg-white/5 backdrop-blur-xl rounded-xl p-1 border border-white/10">
-                      <button
-                        onClick={() => setChartView('standard')}
-                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                          chartView === 'standard'
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 shadow-lg shadow-amber-500/30'
-                            : 'text-white/50 hover:text-white hover:bg-white/10'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                          </svg>
-                          Tracks
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => setChartView('hex')}
-                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                          chartView === 'hex'
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 shadow-lg shadow-amber-500/30'
-                            : 'text-white/50 hover:text-white hover:bg-white/10'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                          </svg>
-                          Hex
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => setChartView('spaghetti')}
-                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                          chartView === 'spaghetti'
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 shadow-lg shadow-amber-500/30'
-                            : 'text-white/50 hover:text-white hover:bg-white/10'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                          </svg>
-                          Lines
-                        </span>
-                      </button>
-                    </div>
+                  {/* Header */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                    <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Live Battle</h3>
+                    {useIndexerPrices && (
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-500/20 text-orange-400 rounded-full border border-orange-500/30">
+                        FINAL PRICES
+                      </span>
+                    )}
                   </div>
 
-                  {/* Chart Display */}
-                  {chartView === 'standard' && (
-                    <VolatilityChart arenaId={arena.arenaId} height={350} refreshInterval={5000} />
-                  )}
-                  {chartView === 'hex' && (
-                    <div className="flex justify-center overflow-x-auto pb-2">
-                      <HexArenaChart arenaId={arena.arenaId} size={550} refreshInterval={5000} />
-                    </div>
-                  )}
-                  {chartView === 'spaghetti' && (
-                    <SpaghettiChart arenaId={arena.arenaId} height={450} refreshInterval={5000} />
-                  )}
+                  {/* Volatility Chart - pass volatilityData for consistency with participant list */}
+                  <VolatilityChart 
+                    arenaId={arena.arenaId} 
+                    height={350} 
+                    refreshInterval={5000}
+                    useIndexerPrices={useIndexerPrices}
+                    externalVolatilityData={useIndexerPrices ? volatilityData : undefined}
+                  />
+                </div>
+              )}
+
+              {/* Chart Section - Show HexArenaChart for Ended/Canceled arenas */}
+              {(displayedStatus === ArenaStatus.Ended || displayedStatus === ArenaStatus.Canceled) && (
+                <div className="mb-6">
+                  {/* Header */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Final Results</h3>
+                  </div>
+
+                  {/* Hex Chart */}
+                  <div className="flex justify-center overflow-x-auto pb-2">
+                    <HexArenaChart arenaId={arena.arenaId} size={550} refreshInterval={30000} />
+                  </div>
                 </div>
               )}
 
               {/* Participants */}
               <div className="space-y-8 mt-10 pb-8">
                 {/* Winners Section - Only for ended arenas */}
-                {arena.status === ArenaStatus.Ended && getWinners().length > 0 && (
+                {displayedStatus === ArenaStatus.Ended && getWinners().length > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <span className="text-lg">🏆</span>
@@ -704,8 +915,8 @@ function ArenaDetailPage() {
                   </section>
                 )}
 
-                {/* Live Standings - For active arenas */}
-                {arena.status === ArenaStatus.Active && arena.playerCount > 0 && (
+                {/* Live Standings - For active arenas (including ending/transition) */}
+                {(displayedStatus === ArenaStatus.Active || displayedStatus === null) && arena.status !== ArenaStatus.Waiting && arena.playerCount > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
@@ -728,7 +939,7 @@ function ArenaDetailPage() {
                 )}
 
                 {/* Other Participants - For ended arenas (losers) */}
-                {arena.status === ArenaStatus.Ended && getLosers().length > 0 && (
+                {displayedStatus === ArenaStatus.Ended && getLosers().length > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <h2 className="text-lg font-bold text-white uppercase tracking-wider">
