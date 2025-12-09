@@ -22,10 +22,6 @@ interface PlayerEntry {
   playerIndex: number;
   assetIndex: number;
   assetSymbol: string;
-  tokenAmount: number;
-  usdValue: number;
-  entryPrice?: number;
-  actualUsdValue?: number;
 }
 
 interface Arena {
@@ -36,6 +32,7 @@ interface Arena {
   statusLabel: string;
   playerCount: number;
   assetCount: number;
+  totalPoolSol: number;
   totalPoolUsd: number;
   startTimestamp: string | null;
   endTimestamp: string | null;
@@ -43,16 +40,13 @@ interface Arena {
   playerEntries?: PlayerEntry[];
 }
 
-// Status constants (matching on-chain program)
+// Status constants (matching new cryptarena-sol program)
 const ArenaStatus = {
   Uninitialized: 0,
   Waiting: 1,
-  Ready: 2,
-  Active: 3,
-  Ended: 4,
-  Suspended: 5,
-  Starting: 6,
-  Ending: 7,
+  Active: 2,
+  Ended: 3,
+  Canceled: 4,
 };
 
 function ArenasPage() {
@@ -116,12 +110,9 @@ function ArenasPage() {
     const styles: Record<number, string> = {
       [ArenaStatus.Uninitialized]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
       [ArenaStatus.Waiting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-      [ArenaStatus.Ready]: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
       [ArenaStatus.Active]: 'bg-sky-500/20 text-sky-400 border-sky-500/40 animate-pulse',
       [ArenaStatus.Ended]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
-      [ArenaStatus.Suspended]: 'bg-red-500/20 text-red-400 border-red-500/40',
-      [ArenaStatus.Starting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-      [ArenaStatus.Ending]: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
+      [ArenaStatus.Canceled]: 'bg-red-500/20 text-red-400 border-red-500/40',
     };
     
     return (
@@ -191,13 +182,13 @@ function ArenasPage() {
                 </svg>
               </p>
               <p className="text-2xl font-bold bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">
-                ${arena.totalPoolUsd.toFixed(0)}
+                {(arena.totalPoolSol || 0).toFixed(2)} SOL
               </p>
               
               {/* Tooltip */}
               <div className="absolute bottom-full right-0 mb-2 opacity-0 group-hover/pool:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999]">
                 <div className="bg-zinc-900/95 backdrop-blur-md rounded-lg px-3 py-2 border border-zinc-700/80 shadow-xl whitespace-nowrap">
-                  <p className="text-white text-xs">Calculated at current market prices</p>
+                  <p className="text-white text-xs">≈ ${(arena.totalPoolUsd || 0).toFixed(2)} USD</p>
                   <div className="absolute top-full right-4 -mt-1 border-4 border-transparent border-t-zinc-900/95"></div>
                 </div>
               </div>
@@ -234,7 +225,7 @@ function ArenasPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🏆</span>
                   <span className="text-amber-400 font-bold">
-                    {['SOL', 'TRUMP', 'PUMP', 'BONK', 'JUP', 'PENGU', 'PYTH', 'HNT', 'FARTCOIN', 'RAY', 'JTO', 'KMNO', 'MET', 'W'][arena.winningAsset] || `Token #${arena.winningAsset}`}
+                    {['SOL', 'TRUMP', 'PUMP', 'BONK', 'JUP', 'PENGU', 'PYTH', 'HNT', 'FARTCOIN', 'RAY', 'JTO', 'KMNO', 'MET', 'W', 'ETH', 'UNI', 'LINK', 'PEPE', 'SHIB'][arena.winningAsset] || `Token #${arena.winningAsset}`}
                   </span>
                 </div>
               </div>

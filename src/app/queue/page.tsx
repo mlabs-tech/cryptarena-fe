@@ -1,172 +1,208 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet, useWalletContext, useConnection } from '@/context/WalletContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
-import { api, CryptoCoin } from '@/lib/api';
-import { indexerApi, CurrentArenaResponse, PlayerCheckResponse, PlayerEntry } from '@/lib/indexer-api';
+import { indexerApi, CurrentArenaResponse, PlayerCheckResponse } from '@/lib/indexer-api';
 import { useCryptarena } from '@/hooks/useCryptarena';
 import Image from 'next/image';
 import localFont from 'next/font/local';
-import { PublicKey, Connection, clusterApiUrl } from '@solana/web3.js';
-import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-// Fallback RPC if Helius gets rate limited
-const FALLBACK_RPC = clusterApiUrl('devnet');
+// Format countdown time (mm:ss)
+function formatCountdown(ms: number): { minutes: string; seconds: string } {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return {
+    minutes: minutes.toString().padStart(2, '0'),
+    seconds: seconds.toString().padStart(2, '0'),
+  };
+}
 
 const aceOfSwords = localFont({
   src: '../../fonts/AceOfSwords-R9x9W.otf',
   variable: '--font-ace-of-swords',
 });
 
-// Token list with devnet mint addresses and images
+// Token list with images - includes both Solana and EVM tokens
+// All champions are unlocked (no balance requirements)
 const TOKENS = [
+  // Solana tokens (indices 0-13)
   { 
     name: 'Solana', 
     symbol: 'SOL', 
-    mint: '7a1eh57mbAvEHevFhsofrGYgGPiNBpwwPzQu4KU85EXe',
+    index: 0,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/53645b0e-c1af-4785-5bee-788e0548bc00/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/6e62d62c-c638-43a9-45ef-7b7c77063400/public'
   },
   { 
     name: 'Official Trump', 
     symbol: 'TRUMP', 
-    mint: '5aTAebL8dn3s4SFDLaMTC866XomLCJ4vY1Z1VTEALSdh',
+    index: 1,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/3e376b08-9941-489a-a985-70b0ff59ba00/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/bad2d191-8df9-43b6-4a46-00b7a564fc00/public'
   },
   { 
     name: 'Pump.fun', 
     symbol: 'PUMP', 
-    mint: 'K3vfcZbYhEuEHG6woBVpShURxnVxavhgyP16VM9zChS',
+    index: 2,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/7b8f0b51-d513-45ae-b363-007729824600/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1e6839a0-0bd7-40e5-b597-000ed113e600/public'
   },
   { 
     name: 'Bonk', 
     symbol: 'BONK', 
-    mint: 'DkHvWT5Ayk9ciWhz7FU48A2MdEwZekuRdaYVUGtjZdYB',
+    index: 3,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/eef48f24-ce2b-4a48-8749-15372de88200/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/5d0bf0e4-3e46-4c2c-0780-521f8871ba00/public'
   },
   { 
     name: 'Jupiter', 
     symbol: 'JUP', 
-    mint: 'E1JEPG4CcK2AHh3s6FFSHBjdzBqBcYjttL4GBHQGKNGS',
+    index: 4,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1e7a795f-3891-4292-10c2-6895db46c700/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/94f91670-6b37-44a0-266a-795a2f2c4200/public'
   },
   { 
     name: 'Pudgy Penguin', 
     symbol: 'PENGU', 
-    mint: 'BhhivFuau4RFEPTwrdvhzvSQuyezc8nJW8vPsBDoLruz',
+    index: 5,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/34ccf0fe-8b70-432d-54fd-8491e1450500/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/f9c695a9-0ed4-44dc-06c8-4c345f327000/public'
   },
   { 
     name: 'Pyth Network', 
     symbol: 'PYTH', 
-    mint: 'Cm8Z4DsQ4SP7zc3FTcTHpzyZ8hMR1adiDSG7Hf45dFMt',
+    index: 6,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/4949f311-878d-4846-98dd-3c37956c9e00/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/dc01a5f9-f706-4666-73fa-7975a9e78900/public'
   },
   { 
     name: 'Helium', 
     symbol: 'HNT', 
-    mint: '8dbowGCfdiL7x3tzuKJfbc4WPpHdqRqsHEeqfd5Wh7xn',
+    index: 7,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/8fa845cb-d0f3-4b9f-bbdf-0a0db98d4b00/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/d3aafc32-ffd0-4e5f-bf29-50b34a989400/public'
   },
   { 
     name: 'Fartcoin', 
     symbol: 'FARTCOIN', 
-    mint: '2yaeL5SPximYfKHJMvhsaFfmcoA3XUMcKd7buuq7sFnz',
+    index: 8,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/5a59acb7-320e-43c9-4338-255d27c55100/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/bccba14b-e8d6-4a61-6f1a-109c5552d700/public'
   },
   { 
     name: 'Raydium', 
     symbol: 'RAY', 
-    mint: 'Dx67K9UyaHsPy7shTmuC4xuHvKGFcSpfzBQQNEgP3Fcf',
+    index: 9,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1d46be69-859c-48b6-0944-db3a039f5f00/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/53eb773b-364b-4248-5c60-4d0d35dfea00/public'
   },
   { 
     name: 'Jito', 
     symbol: 'JTO', 
-    mint: 'ChMDp2sBn23Zyu2YtGU7M6hQUJzMmMdZ6XmWpsrxRKEr',
+    index: 10,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/f85c5172-9836-4baa-6bf0-e63a22039800/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/35993580-89d1-487d-9a36-e55c77e72100/public'
   },
   { 
     name: 'Kamino', 
     symbol: 'KMNO', 
-    mint: '2byoKnAGKFFRKcmrxJ7FeizXH1pw2tqN38E7dLs7ogvg',
+    index: 11,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/8be9163e-b761-4982-d9f4-b10bec5fd100/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/5bb386d1-41a5-449d-8d72-b06641584600/public'
   },
   { 
     name: 'Meteora', 
     symbol: 'MET', 
-    mint: '4YHdgCq49res2mKd4EUBFtk2krmzt3RLaSUVVkgwMH36',
+    index: 12,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/cf0d3708-0f01-4fb9-8c77-eb2ce597d700/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/7a45aa3d-9e01-40f3-6481-fdaa76926d00/public'
   },
   { 
     name: 'Wormhole', 
     symbol: 'W', 
-    mint: 'H9wd9H5wAVXBpsf9VtRKMXtSeUGNWHk33UkywWNvWjDi',
+    index: 13,
+    chainType: 'solana',
     image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/d41f94d9-5d4b-4605-9af1-867f52cec400/public',
     imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1e4bca1d-11e9-4ea6-166d-1587f86ede00/public'
   },
+  // EVM tokens (indices 14-18)
+  { 
+    name: 'Ethereum', 
+    symbol: 'ETH', 
+    index: 14,
+    chainType: 'evm',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/57f1a06f-1d6b-4da5-07e1-b2cb741aac00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/57f1a06f-1d6b-4da5-07e1-b2cb741aac00/public'
+  },
+  { 
+    name: 'Uniswap', 
+    symbol: 'UNI', 
+    index: 15,
+    chainType: 'evm',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/d6aad948-431b-47ce-51f0-106e53c0cf00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/d6aad948-431b-47ce-51f0-106e53c0cf00/public'
+  },
+  { 
+    name: 'Chainlink', 
+    symbol: 'LINK', 
+    index: 16,
+    chainType: 'evm',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/62e43cd7-a536-4904-ffb3-fa05410eff00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/62e43cd7-a536-4904-ffb3-fa05410eff00/public'
+  },
+  { 
+    name: 'Pepe', 
+    symbol: 'PEPE', 
+    index: 17,
+    chainType: 'evm',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/9049e18a-f653-4cb1-0b51-625f78429500/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/9049e18a-f653-4cb1-0b51-625f78429500/public'
+  },
+  { 
+    name: 'Shiba Inu', 
+    symbol: 'SHIB', 
+    index: 18,
+    chainType: 'evm',
+    image: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/a8d779d6-a0d5-4233-f4e6-215ec0bfcf00/public',
+    imageAlt: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/a8d779d6-a0d5-4233-f4e6-215ec0bfcf00/public'
+  },
 ];
-
-// Champion background images
-const CHAMP_BACKGROUNDS = [
-  '/champs/Gemini_Generated_Image_3ed8h33ed8h33ed8 2.png',
-  '/champs/Gemini_Generated_Image_4u4cbi4u4cbi4u4c 2.png',
-  '/champs/Gemini_Generated_Image_k8useqk8useqk8us 2.png',
-  '/champs/Gemini_Generated_Image_ntqtgontqtgontqt 2.png',
-  '/champs/Gemini_Generated_Image_ve6l94ve6l94ve6l 2.png',
-  '/champs/Gemini_Generated_Image_zb7ejpzb7ejpzb7e 1.png',
-];
-
-// Format large numbers (e.g., market cap)
-function formatMarketCap(value: number): string {
-  if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
-  if (value >= 1e3) return `$${(value / 1e3).toFixed(2)}K`;
-  return `$${value.toFixed(2)}`;
-}
 
 function QueueMatchPage() {
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const { publicKey, connected, disconnect } = useWallet();
+  const { user } = useAuth();
+  const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
-  const { currentLinkedWallet } = useWalletContext();
-  const { enterArena, isLoading: isEntering } = useCryptarena();
+  const { enterArena, getEntryFee, isLoading: isEntering } = useCryptarena();
   
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
-  const [coinData, setCoinData] = useState<CryptoCoin | null>(null);
-  const [isLoadingCoin, setIsLoadingCoin] = useState(false);
-  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
-  const [coinError, setCoinError] = useState<string | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<string>(
     'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/ba74054b-26b7-4f47-949a-9f9a2edefc00/public'
   );
   const [bgImageLoaded, setBgImageLoaded] = useState(true);
   
-  // Token balances - maps symbol to balance (0 means locked)
-  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
-  const [isLoadingBalances, setIsLoadingBalances] = useState(false);
-  
-  // Amount input state
-  const [usdAmount, setUsdAmount] = useState<string>('');
+  // SOL balance for entry fee check
+  const [solBalance, setSolBalance] = useState<number>(0);
+  const [entryFee, setEntryFee] = useState<number>(0.01); // Default entry fee in SOL
   
   // Transaction state
   const [txStatus, setTxStatus] = useState<'idle' | 'signing' | 'confirming' | 'success' | 'error'>('idle');
@@ -190,141 +226,63 @@ function QueueMatchPage() {
   // Check if user is already in arena
   const userAlreadyInArena = playerCheck?.isInArena || false;
 
-  // Fetch coin data when token is selected
+  // Countdown timer state
+  const [countdownMs, setCountdownMs] = useState<number>(0);
+
+  // Calculate countdown from arena data
   useEffect(() => {
-    if (!selectedToken) {
-      setCoinData(null);
-      setCoinError(null);
-      setIsLoadingCoin(false);
-      setShowLoadingIndicator(false);
+    if (!arenaData?.exists || !arenaData.arena?.countdownEndsAt) {
+      setCountdownMs(0);
       return;
     }
 
-    let loadingTimeout: NodeJS.Timeout;
-    let isCancelled = false;
-
-    const fetchCoinData = async () => {
-      setIsLoadingCoin(true);
-      setCoinError(null);
+    const updateCountdown = () => {
+      const endsAt = new Date(arenaData.arena!.countdownEndsAt!).getTime();
+      const remaining = Math.max(0, endsAt - Date.now());
+      setCountdownMs(remaining);
       
-      loadingTimeout = setTimeout(() => {
-        if (!isCancelled) {
-          setShowLoadingIndicator(true);
-        }
-      }, 500);
-      
-      try {
-        const data = await api.getCoinBySymbol(selectedToken);
-        if (!isCancelled) {
-          setCoinData(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch coin data:', error);
-        if (!isCancelled) {
-          setCoinError('Failed to load coin data');
-          const token = TOKENS.find(t => t.symbol === selectedToken);
-          if (token) {
-            setCoinData({
-              symbol: token.symbol,
-              name: token.name,
-              currentPrice: 0,
-              marketCap: 0,
-              percentChange24h: 0,
-              lastUpdated: Date.now(),
-            });
-          }
-        }
-      } finally {
-        if (!isCancelled) {
-          clearTimeout(loadingTimeout);
-          setIsLoadingCoin(false);
-          setShowLoadingIndicator(false);
-        }
+      // Redirect to arena page when countdown reaches 0
+      if (remaining === 0 && arenaData.arena) {
+        router.push(`/arenas/${arenaData.arena.arenaId}`);
       }
     };
 
-    fetchCoinData();
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [arenaData, router]);
 
-    return () => {
-      isCancelled = true;
-      clearTimeout(loadingTimeout);
-    };
-  }, [selectedToken]);
+  const countdownTime = useMemo(() => formatCountdown(countdownMs), [countdownMs]);
+  const hasCountdown = arenaData?.exists && arenaData.arena?.countdownEndsAt && countdownMs > 0;
 
-  // Fetch token balances when wallet is connected (batched for Helius rate limit)
-  const fetchTokenBalances = useCallback(async () => {
-    if (!publicKey || !connected || !connection) {
-      setTokenBalances({});
+  // Check if selected token is already taken in the current arena
+  const isTokenTaken = useCallback((symbol: string): boolean => {
+    if (!arenaData?.exists || !arenaData.arena?.playerEntries) return false;
+    return arenaData.arena.playerEntries.some(p => p.assetSymbol === symbol);
+  }, [arenaData]);
+
+  // Fetch SOL balance and entry fee
+  const fetchSolBalanceAndFee = useCallback(async () => {
+    if (!publicKey || !connected) {
+      setSolBalance(0);
       return;
     }
-
-    setIsLoadingBalances(true);
-
-    // Helper to fetch a single token balance
-    const fetchSingleBalance = async (token: typeof TOKENS[0], conn: Connection) => {
-      try {
-        const mintPubkey = new PublicKey(token.mint);
-        const ata = await getAssociatedTokenAddress(mintPubkey, publicKey);
-        
-        try {
-          const accountInfo = await getAccount(conn, ata);
-          return { symbol: token.symbol, balance: Number(accountInfo.amount) };
-        } catch {
-          // Account doesn't exist, balance is 0
-          return { symbol: token.symbol, balance: 0 };
-        }
-      } catch (err) {
-        console.error(`Error fetching balance for ${token.symbol}:`, err);
-        return { symbol: token.symbol, balance: 0 };
-      }
-    };
 
     try {
-      // Batch tokens into groups of 7 to stay under Helius 10 req/s limit
-      const BATCH_SIZE = 7;
-      const batches: typeof TOKENS[] = [];
-      for (let i = 0; i < TOKENS.length; i += BATCH_SIZE) {
-        batches.push(TOKENS.slice(i, i + BATCH_SIZE));
-      }
-
-      const allResults: { symbol: string; balance: number }[] = [];
-      let useFallback = false;
-
-      for (const batch of batches) {
-        try {
-          const conn = useFallback ? new Connection(FALLBACK_RPC) : connection;
-          const batchResults = await Promise.all(
-            batch.map(token => fetchSingleBalance(token, conn))
-          );
-          allResults.push(...batchResults);
-        } catch (err) {
-          // If rate limited, switch to fallback and retry this batch
-          if (!useFallback) {
-            console.warn('Helius rate limited, switching to public devnet RPC');
-            useFallback = true;
-            const fallbackConn = new Connection(FALLBACK_RPC);
-            const batchResults = await Promise.all(
-              batch.map(token => fetchSingleBalance(token, fallbackConn))
-            );
-            allResults.push(...batchResults);
-          }
-        }
-      }
-
-      const balances: Record<string, number> = {};
-      allResults.forEach(({ symbol, balance }) => {
-        balances[symbol] = balance;
-      });
+      const balance = await connection.getBalance(publicKey);
+      setSolBalance(balance / LAMPORTS_PER_SOL);
       
-      setTokenBalances(balances);
-    } finally {
-      setIsLoadingBalances(false);
+      // Fetch current entry fee from program
+      const fee = await getEntryFee();
+      setEntryFee(fee);
+    } catch (err) {
+      console.error('Failed to fetch SOL balance:', err);
     }
-  }, [publicKey, connected, connection]);
+  }, [publicKey, connected, connection, getEntryFee]);
 
   useEffect(() => {
-    fetchTokenBalances();
-  }, [fetchTokenBalances]);
+    fetchSolBalanceAndFee();
+  }, [fetchSolBalanceAndFee]);
 
   // Fetch current arena data from indexer
   const fetchArenaData = useCallback(async () => {
@@ -397,6 +355,9 @@ function QueueMatchPage() {
   if (!user) return null;
 
   const handleTokenSelect = (symbol: string) => {
+    // Don't select if already taken
+    if (isTokenTaken(symbol)) return;
+    
     setSelectedToken(symbol);
     // Use token image as background with fade effect
     setBgImageLoaded(false);
@@ -408,12 +369,7 @@ function QueueMatchPage() {
 
   // Handle LOCK IN button click
   const handleLockIn = async () => {
-    if (!selectedToken || !usdAmount || !coinData) return;
-    
-    const usd = parseFloat(usdAmount);
-    if (usd < 10 || usd > 20) return;
-    
-    const tokenAmt = usd / coinData.currentPrice;
+    if (!selectedToken) return;
     
     setTxStatus('signing');
     setTxError(null);
@@ -422,8 +378,6 @@ function QueueMatchPage() {
     try {
       const result = await enterArena({
         tokenSymbol: selectedToken,
-        tokenAmount: tokenAmt,
-        usdValue: usd,
       });
       
       if (result.success && result.signature) {
@@ -432,6 +386,7 @@ function QueueMatchPage() {
         // Refresh arena data after successful entry
         setTimeout(() => {
           fetchArenaData();
+          fetchSolBalanceAndFee();
           setTxStatus('idle');
         }, 2000);
       } else {
@@ -444,20 +399,10 @@ function QueueMatchPage() {
     }
   };
 
-  // Calculate token amount from USD
-  const tokenAmount = coinData && coinData.currentPrice > 0 && usdAmount
-    ? (parseFloat(usdAmount) / coinData.currentPrice).toFixed(6)
-    : '0.00';
-
-  // Check if user has sufficient balance
+  // Check if user has sufficient SOL balance for entry fee + tx fee
   const hasInsufficientBalance = () => {
-    if (!selectedToken || !usdAmount || !coinData || coinData.currentPrice <= 0) return false;
-    
-    const rawBalance = tokenBalances[selectedToken] ?? 0;
-    const availableBalance = rawBalance / 1e9; // Convert from smallest unit
-    const requiredTokens = parseFloat(usdAmount) / coinData.currentPrice;
-    
-    return availableBalance < requiredTokens;
+    // Need entry fee + ~0.01 SOL for tx fees and rent
+    return solBalance < (entryFee + 0.01);
   };
 
   return (
@@ -604,12 +549,12 @@ function QueueMatchPage() {
                     </>
                   )}
                   
-                  {/* Tooltip on hover - appears below */}
+                  {/* Simplified Tooltip on hover - only shows champion token */}
                   {isLocked && player && (
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none z-50 scale-95 group-hover:scale-100">
                       {/* Tooltip arrow pointing up */}
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-zinc-900/95"></div>
-                      <div className="bg-zinc-900/95 backdrop-blur-md rounded-xl px-3 py-2.5 border border-zinc-700/80 shadow-xl min-w-[160px]">
+                      <div className="bg-zinc-900/95 backdrop-blur-md rounded-xl px-3 py-2.5 border border-zinc-700/80 shadow-xl min-w-[120px]">
                         {/* Profile Header */}
                         <div className="flex items-center gap-2 mb-2 pb-2 border-b border-zinc-700/50">
                           {profile?.twitterProfilePicture ? (
@@ -638,37 +583,10 @@ function QueueMatchPage() {
                           </div>
                         </div>
                         
-                        {/* Stats */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-500 text-[10px]">Champion</span>
-                            <span className="text-amber-400 font-bold text-xs">{player.assetSymbol}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-zinc-500 text-[10px]">Amount</span>
-                            <span className="text-white font-medium text-xs">{player.tokenAmount.toFixed(6)}</span>
-                          </div>
-                          {player.actualUsdValue ? (
-                            <>
-                              <div className="flex justify-between items-center">
-                                <span className="text-zinc-500 text-[10px]">Entry Value</span>
-                                <span className="text-cyan-400 font-medium text-xs">${player.actualUsdValue.toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-zinc-500 text-[10px]">Locked Value</span>
-                                <span className="text-green-400 font-medium text-xs">${player.usdValue.toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-zinc-500 text-[10px]">Entry Price</span>
-                                <span className="text-zinc-400 font-medium text-xs">${player.entryPrice?.toFixed(4)}</span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="flex justify-between items-center">
-                              <span className="text-zinc-500 text-[10px]">Locked Value</span>
-                              <span className="text-green-400 font-medium text-xs">${player.usdValue.toFixed(2)}</span>
-                            </div>
-                          )}
+                        {/* Only Champion info */}
+                        <div className="flex justify-between items-center">
+                          <span className="text-zinc-500 text-[10px]">Champion</span>
+                          <span className="text-amber-400 font-bold text-xs">{player.assetSymbol}</span>
                         </div>
                         
                         {isCurrentUser && (
@@ -684,56 +602,95 @@ function QueueMatchPage() {
             })}
           </div>
 
-          {/* Arena Status & Waiting text - Glass card */}
-          <div className="flex justify-center">
-            <div className="bg-white/10 backdrop-blur-md rounded-xl px-6 py-3 border border-white/20 shadow-lg">
-              <div className="text-center space-y-1">
-                {/* Only show loading on initial load, not on refreshes */}
-                {isLoadingArena && !arenaData ? (
-                  <p className="text-white/60 text-sm flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Loading arena status...
-                  </p>
-                ) : arenaError ? (
-                  <p className="text-red-400 text-sm">{arenaError}</p>
-                ) : !arenaData?.exists ? (
-                  <div>
-                    <p className="text-amber-400 text-sm font-bold">Be the first to start a new arena!</p>
-                    <p className="text-white/70 text-xs">Arena #{arenaData?.nextArenaId || '1'} waiting for players</p>
-                  </div>
-                ) : userAlreadyInArena ? (
-                  <div>
-                    <p className="text-amber-400 text-sm font-bold">✓ You are in this arena!</p>
-                    <p className="text-white/70 text-xs">
-                      Waiting for <span className="text-amber-300 font-bold">{playersNeeded}</span> more player{playersNeeded !== 1 ? 's' : ''}...
+          {/* Arena Status - Only show important messages */}
+          {(isLoadingArena && !arenaData) || arenaError || !arenaData?.exists || userAlreadyInArena ? (
+            <div className="flex justify-center">
+              <div className="bg-white/10 backdrop-blur-md rounded-xl px-6 py-3 border border-white/20 shadow-lg">
+                <div className="text-center">
+                  {/* Only show loading on initial load, not on refreshes */}
+                  {isLoadingArena && !arenaData ? (
+                    <p className="text-white/60 text-sm flex items-center justify-center gap-2">
+                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Loading arena status...
                     </p>
-                  </div>
-                ) : (
-                  <p className="text-white/70 text-sm">
-                    Waiting for <span className="text-amber-300 font-bold">{playersNeeded}</span> more player{playersNeeded !== 1 ? 's' : ''}...
-                  </p>
-                )}
-                
-                {/* Arena ID indicator */}
-                {arenaData?.exists && arenaData.arena && (
-                  <p className="text-white/50 text-[10px] font-mono">
-                    Arena #{arenaData.arena.arenaId} • {arenaData.arena.statusLabel}
-                  </p>
-                )}
+                  ) : arenaError ? (
+                    <p className="text-red-400 text-sm">{arenaError}</p>
+                  ) : !arenaData?.exists ? (
+                    <p className="text-amber-400 text-sm font-bold">Be the first to start a new arena!</p>
+                  ) : userAlreadyInArena ? (
+                    <p className="text-amber-400 text-sm font-bold">✓ You are in this arena!</p>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
+          ) : null}
+
+          {/* Countdown Timer - Liquid Glass Effect */}
+          {hasCountdown && (
+            <div className="absolute right-8 top-1/2 -translate-y-1/2 z-20">
+              <div className="bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl p-8 min-w-[280px]">
+                {/* Subtle glow effect */}
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+                
+                <div className="relative text-center">
+                  <p 
+                    className="text-white/60 text-sm uppercase tracking-[0.2em] mb-2"
+                    style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                  >
+                    Arena Starts In
+                  </p>
+                  
+                  {/* Big countdown display */}
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="bg-white/10 backdrop-blur-sm rounded-xl px-6 py-4 border border-white/10 min-w-[140px]">
+                      <span 
+                        className="text-5xl font-bold text-white block text-center tabular-nums"
+                        style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                      >
+                        {countdownTime.minutes}
+                      </span>
+                      <p className="text-white/40 text-xs uppercase tracking-wider mt-2 text-center">Min</p>
+                    </div>
+                    <span className="text-3xl text-white/40 font-light">:</span>
+                    <div className="bg-white/10 backdrop-blur-sm rounded-xl px-6 py-4 border border-white/10 min-w-[140px]">
+                      <span 
+                        className="text-5xl font-bold text-white block text-center tabular-nums"
+                        style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                      >
+                        {countdownTime.seconds}
+                      </span>
+                      <p className="text-white/40 text-xs uppercase tracking-wider mt-2 text-center">Sec</p>
+                    </div>
+                  </div>
+                  
+                  {/* Progress bar */}
+                  <div className="mt-4 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full transition-all duration-1000"
+                      style={{ 
+                        width: `${Math.max(0, (1 - countdownMs / (arenaData?.arena?.countdownDurationMs || 600000)) * 100)}%` 
+                      }}
+                    />
+                  </div>
+                  
+                  <p className="text-white/40 text-xs mt-3">
+                    {playersLocked} player{playersLocked !== 1 ? 's' : ''} in waiting room
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Middle Section - Entry Form or Arena Rules */}
+        {/* Middle Section - Arena Rules (always visible) */}
         <div className="flex-1 flex items-center px-8">
           {/* Arena Rules - Show when no champion selected */}
           {!selectedToken && (
             <div className="flex items-center justify-center gap-20 animate-fade-in w-full">
-              {/* Rule 1 - Lock in value */}
+              {/* Rule 1 - Entry Fee */}
               <div className="flex flex-col items-center text-center group">
                 <div className="w-24 h-24 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center mb-4 group-hover:bg-white/10 transition-all group-hover:scale-105 shadow-lg">
                   <svg className="w-12 h-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -744,10 +701,10 @@ function QueueMatchPage() {
                   className="text-white text-2xl mb-2 tracking-wide"
                   style={{ fontFamily: 'var(--font-ace-of-swords)' }}
                 >
-                  Lock-in Value
+                  Entry Fee
                 </p>
-                <p className="text-white/70 text-base">$10 - $20 worth</p>
-                <p className="text-white/70 text-base">of tokens</p>
+                <p className="text-white/70 text-base">{entryFee} SOL</p>
+                <p className="text-white/70 text-base">Fixed entry</p>
               </div>
 
               {/* Rule 2 - Players */}
@@ -765,7 +722,7 @@ function QueueMatchPage() {
                 <p className="text-white/70 text-base">One winner takes all</p>
               </div>
 
-              {/* Rule 3 - Timeframe */}
+              {/* Rule 3 - Rewards */}
               <div className="flex flex-col items-center text-center group">
                 <div className="w-24 h-24 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex items-center justify-center mb-4 group-hover:bg-white/10 transition-all group-hover:scale-105 shadow-lg">
                   <svg className="w-12 h-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -773,202 +730,31 @@ function QueueMatchPage() {
                   </svg>
                 </div>
                 <p className="text-white text-2xl mb-2 tracking-wide">
-                  <span className="font-bold">~48</span>{' '}
-                  <span style={{ fontFamily: 'var(--font-ace-of-swords)' }}>Hours</span>
+                  <span className="font-bold">90%</span>{' '}
+                  <span style={{ fontFamily: 'var(--font-ace-of-swords)' }}>Winner</span>
                 </p>
-                <p className="text-white/70 text-base">Starts after 10th</p>
-                <p className="text-white/70 text-base">player joins</p>
-              </div>
-            </div>
-          )}
-
-          {/* Entry Form (shows when token selected) */}
-          {selectedToken && coinData && (
-            <div className="w-[420px] min-w-[420px] ml-auto">
-              <div className="animate-slide-in-right">
-                <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border border-white/30 shadow-2xl">
-                  <h3 
-                    className="text-white text-3xl mb-4 tracking-wide truncate"
-                    style={{ fontFamily: 'var(--font-ace-of-swords)' }}
-                  >
-                    {coinData.name}
-                  </h3>
-                  
-                  <p className="text-white font-bold text-sm mb-3">Select the amount</p>
-                  
-                  {/* Amount Input Row */}
-                  <div className="flex items-start gap-4 mb-4">
-                    {/* Input */}
-                    <div className={`flex-1 bg-white/90 rounded-xl px-5 py-4 flex items-center border-2 transition-colors ${
-                      hasInsufficientBalance() ? 'border-red-500' : 'border-white/50'
-                    }`}>
-                      <input
-                        type="number"
-                        value={usdAmount}
-                        onChange={(e) => setUsdAmount(e.target.value)}
-                        placeholder="0.00"
-                        min="10"
-                        max="20"
-                        className="bg-transparent text-gray-800 text-2xl font-bold w-full outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span className="text-gray-500 font-bold ml-2 text-lg">USD</span>
-                    </div>
-                    
-                    {/* Token Equivalent & Balance */}
-                    <div className="text-right whitespace-nowrap min-w-[120px]">
-                      <p className="text-white font-bold text-lg">~ {tokenAmount} {coinData.symbol}</p>
-                      <p className={`text-xs mt-2 font-medium ${hasInsufficientBalance() ? 'text-red-400' : 'text-white/90'}`}>
-                        Available balance
-                      </p>
-                      <p className={`font-semibold text-sm ${hasInsufficientBalance() ? 'text-red-400' : 'text-white'}`}>
-                        {(() => {
-                          const rawBalance = tokenBalances[selectedToken] ?? 0;
-                          // Convert from smallest unit (9 decimals for SPL tokens)
-                          const balance = rawBalance / 1e9;
-                          return balance > 0 
-                            ? `${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} ${coinData.symbol}`
-                            : `0 ${coinData.symbol}`;
-                        })()}
-                      </p>
-                      {hasInsufficientBalance() && (
-                        <p className="text-red-400 text-[10px] mt-1 font-medium flex items-center justify-end gap-1">
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                          Not enough
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Arena Rules Link */}
-                  <div className="flex justify-end mb-6">
-                    <button className="text-white/70 text-xs flex items-center gap-1 hover:text-white transition-colors cursor-pointer">
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                      Arena rules
-                    </button>
-                  </div>
-
-                  {/* LOCK IN Button */}
-                  {userAlreadyInArena ? (
-                    <div className="w-full bg-amber-500/20 text-amber-400 font-black text-xl py-5 rounded-2xl border-2 border-amber-500/50 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        ALREADY ENTERED
-                      </div>
-                      <p className="text-amber-400/70 text-xs mt-1 font-normal">
-                        You entered with {playerCheck?.playerEntry?.assetSymbol}
-                      </p>
-                    </div>
-                  ) : txStatus === 'success' ? (
-                    <div className="w-full bg-amber-500/20 text-amber-400 font-black text-xl py-5 rounded-2xl border-2 border-amber-500/50 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        LOCKED IN!
-                      </div>
-                      {txSignature && (
-                        <a 
-                          href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-amber-400/70 text-xs mt-1 font-normal underline hover:text-amber-300"
-                        >
-                          View transaction ↗
-                        </a>
-                      )}
-                    </div>
-                  ) : txStatus === 'error' ? (
-                    <div className="space-y-2">
-                      <div className="w-full bg-red-500/20 text-red-400 font-bold text-sm py-3 px-4 rounded-xl border border-red-500/50 text-center">
-                        {txError || 'Transaction failed'}
-                      </div>
-                      <button 
-                        className="w-full bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-xl py-4 rounded-2xl transition-all cursor-pointer border-2 border-amber-500/50"
-                        onClick={handleLockIn}
-                      >
-                        TRY AGAIN
-                      </button>
-                    </div>
-                  ) : !connected ? (
-                    <button 
-                      className="w-full bg-zinc-600 text-zinc-300 font-black text-xl py-5 rounded-2xl border-2 border-zinc-500/50 cursor-not-allowed"
-                      disabled
-                    >
-                      CONNECT WALLET
-                    </button>
-                  ) : !usdAmount || parseFloat(usdAmount) < 10 || parseFloat(usdAmount) > 20 ? (
-                    <button 
-                      className="w-full bg-zinc-600 text-zinc-300 font-black text-xl py-5 rounded-2xl border-2 border-zinc-500/50 cursor-not-allowed"
-                      disabled
-                    >
-                      {!usdAmount ? 'ENTER AMOUNT' : parseFloat(usdAmount) < 10 ? 'MIN $10' : 'MAX $20'}
-                    </button>
-                  ) : hasInsufficientBalance() ? (
-                    <div className="space-y-2">
-                      <button 
-                        className="w-full bg-red-500/20 text-red-400 font-black text-xl py-5 rounded-2xl border-2 border-red-500/50 cursor-not-allowed"
-                        disabled
-                      >
-                        INSUFFICIENT BALANCE
-                      </button>
-                      <p className="text-red-400 text-xs text-center">
-                        You need {tokenAmount} {coinData?.symbol} but only have{' '}
-                        {(() => {
-                          const rawBalance = tokenBalances[selectedToken] ?? 0;
-                          const balance = rawBalance / 1e9;
-                          return balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
-                        })()} {coinData?.symbol}
-                      </p>
-                    </div>
-                  ) : txStatus === 'signing' || txStatus === 'confirming' || isEntering ? (
-                    <button 
-                      className="w-full bg-amber-400/50 text-gray-900 font-black text-xl py-5 rounded-2xl border-2 border-amber-500/50 cursor-wait flex items-center justify-center gap-3"
-                      disabled
-                    >
-                      <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      {txStatus === 'signing' ? 'APPROVE IN WALLET...' : 'CONFIRMING...'}
-                    </button>
-                  ) : (
-                    <button 
-                      className="w-full bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-2xl py-5 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer border-2 border-amber-500/50 shadow-lg shadow-amber-500/30"
-                      style={{ fontFamily: 'var(--font-ace-of-swords)' }}
-                      onClick={handleLockIn}
-                    >
-                      LOCK IN
-                    </button>
-                  )}
-                </div>
+                <p className="text-white/70 text-base">of total pool</p>
+                <p className="text-white/70 text-base">in SOL</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Bottom Section - Champions */}
+        {/* Bottom Section - Champions Grid + Lock In Button */}
         <div className="px-16 pb-8">
           {/* Token Selection Grid - Honeycomb Hexagon Layout */}
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center relative">
             {/* First row - 7 tokens */}
             <div className="flex justify-center" style={{ gap: '4px' }}>
               {TOKENS.slice(0, 7).map((token, index) => {
-                const balance = tokenBalances[token.symbol];
-                const hasLoadedBalances = Object.keys(tokenBalances).length > 0;
-                const isLocked = hasLoadedBalances && (balance === 0 || balance === undefined);
-                const isLoading = !hasLoadedBalances;
+                const isTaken = isTokenTaken(token.symbol);
                 
                 return (
                 <button
                   key={token.symbol}
                   onClick={() => handleTokenSelect(token.symbol)}
-                  className={`group relative transition-all cursor-pointer hover:scale-110 hover:z-10 ${isLocked ? 'opacity-70' : ''}`}
+                  disabled={isTaken}
+                  className={`group relative transition-all ${isTaken ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:scale-110 hover:z-10'}`}
                   style={{ width: '72px', height: '84px' }}
                 >
                   {/* Main hexagon with simple liquid glass effect */}
@@ -976,72 +762,67 @@ function QueueMatchPage() {
                     className={`absolute inset-0 w-full h-full transition-all ${
                       selectedToken === token.symbol 
                         ? 'drop-shadow-[0_0_12px_rgba(251,191,36,0.6)]' 
-                        : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
+                        : isTaken
+                          ? ''
+                          : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
                     }`}
                     viewBox="0 0 72 84"
                   >
-                    {/* Glass fill - more visible when champion selected */}
+                    {/* Glass fill */}
                     <polygon 
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
                           ? 'fill-amber-400/30'
-                          : selectedToken
-                            ? 'fill-white/20 group-hover:fill-white/25'
-                            : isLocked
-                              ? 'fill-white/5'
+                          : isTaken
+                            ? 'fill-red-500/20'
+                            : selectedToken
+                              ? 'fill-white/20 group-hover:fill-white/25'
                               : 'fill-white/5 group-hover:fill-white/10'
                       }`}
                     />
-                    {/* Border stroke - more visible when champion selected */}
+                    {/* Border stroke */}
                     <polygon 
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       fill="none"
                       className={`transition-all ${
                         selectedToken === token.symbol
                           ? 'stroke-amber-400'
-                          : selectedToken
-                            ? 'stroke-white/30 group-hover:stroke-amber-400/60'
-                            : isLocked
-                              ? 'stroke-white/10'
+                          : isTaken
+                            ? 'stroke-red-500/50'
+                            : selectedToken
+                              ? 'stroke-white/30 group-hover:stroke-amber-400/60'
                               : 'stroke-white/10 group-hover:stroke-amber-400/60'
                       }`}
                       strokeWidth="1.5"
                     />
                   </svg>
                   
-                  {/* Loading skeleton scan effect */}
-                  {isLoading && (
-                    <div 
-                      className="absolute inset-0 overflow-hidden"
-                      style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}
-                    >
-                      <div 
-                        className="absolute inset-0 bg-gradient-to-b from-transparent via-sky-400/40 to-transparent animate-scan"
-                        style={{ animationDelay: `${index * 0.1}s` }}
-                      />
-                    </div>
-                  )}
-                  
                   {/* Content */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    {isLocked ? (
+                    {isTaken ? (
                       <>
-                        <svg className={`w-4 h-4 mb-0.5 transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`} fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                        <svg className="w-4 h-4 mb-0.5 text-red-400/70" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                         </svg>
-                        <span className={`font-bold text-xs text-center leading-tight transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`}>
+                        <span className="font-bold text-xs text-center leading-tight text-red-400/70">
                           {token.symbol}
                         </span>
                       </>
                     ) : (
-                      <span className={`font-bold text-xs text-center leading-tight ${
-                        selectedToken === token.symbol 
-                          ? 'text-amber-400' 
-                          : 'text-white/80 group-hover:text-amber-400'
-                      }`}>
-                        {token.symbol}
-                      </span>
+                      <>
+                        {/* Chain indicator for EVM tokens */}
+                        {token.chainType === 'evm' && (
+                          <span className="text-[8px] text-cyan-400 font-bold mb-0.5">EVM</span>
+                        )}
+                        <span className={`font-bold text-xs text-center leading-tight ${
+                          selectedToken === token.symbol 
+                            ? 'text-amber-400' 
+                            : 'text-white/80 group-hover:text-amber-400'
+                        }`}>
+                          {token.symbol}
+                        </span>
+                      </>
                     )}
                   </div>
                   
@@ -1061,93 +842,81 @@ function QueueMatchPage() {
             {/* Second row - 7 tokens (offset for honeycomb tessellation) */}
             <div className="flex justify-center" style={{ gap: '4px', marginTop: '-17px', marginLeft: '77px' }}>
               {TOKENS.slice(7, 14).map((token, index) => {
-                const balance = tokenBalances[token.symbol];
-                const hasLoadedBalances = Object.keys(tokenBalances).length > 0;
-                const isLocked = hasLoadedBalances && (balance === 0 || balance === undefined);
-                const isLoading = !hasLoadedBalances;
+                const isTaken = isTokenTaken(token.symbol);
                 
                 return (
                 <button
                   key={token.symbol}
                   onClick={() => handleTokenSelect(token.symbol)}
-                  className={`group relative transition-all cursor-pointer hover:scale-110 hover:z-10 ${isLocked ? 'opacity-70' : ''}`}
+                  disabled={isTaken}
+                  className={`group relative transition-all ${isTaken ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:scale-110 hover:z-10'}`}
                   style={{ width: '72px', height: '84px' }}
                 >
-                  {/* Main hexagon with simple liquid glass effect */}
+                  {/* Main hexagon */}
                   <svg 
                     className={`absolute inset-0 w-full h-full transition-all ${
                       selectedToken === token.symbol 
                         ? 'drop-shadow-[0_0_12px_rgba(251,191,36,0.6)]' 
-                        : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
+                        : isTaken
+                          ? ''
+                          : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
                     }`}
                     viewBox="0 0 72 84"
                   >
-                    {/* Glass fill - more visible when champion selected */}
                     <polygon 
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
                           ? 'fill-amber-400/30'
-                          : selectedToken
-                            ? 'fill-white/20 group-hover:fill-white/25'
-                            : isLocked
-                              ? 'fill-white/5'
+                          : isTaken
+                            ? 'fill-red-500/20'
+                            : selectedToken
+                              ? 'fill-white/20 group-hover:fill-white/25'
                               : 'fill-white/5 group-hover:fill-white/10'
                       }`}
                     />
-                    {/* Border stroke - more visible when champion selected */}
                     <polygon 
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       fill="none"
                       className={`transition-all ${
                         selectedToken === token.symbol
                           ? 'stroke-amber-400'
-                          : selectedToken
-                            ? 'stroke-white/30 group-hover:stroke-amber-400/60'
-                            : isLocked
-                              ? 'stroke-white/10'
+                          : isTaken
+                            ? 'stroke-red-500/50'
+                            : selectedToken
+                              ? 'stroke-white/30 group-hover:stroke-amber-400/60'
                               : 'stroke-white/10 group-hover:stroke-amber-400/60'
                       }`}
                       strokeWidth="1.5"
                     />
                   </svg>
                   
-                  {/* Loading skeleton scan effect */}
-                  {isLoading && (
-                    <div 
-                      className="absolute inset-0 overflow-hidden"
-                      style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}
-                    >
-                      <div 
-                        className="absolute inset-0 bg-gradient-to-b from-transparent via-sky-400/40 to-transparent animate-scan"
-                        style={{ animationDelay: `${(index + 7) * 0.1}s` }}
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Content */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    {isLocked ? (
+                    {isTaken ? (
                       <>
-                        <svg className={`w-4 h-4 mb-0.5 transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`} fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                        <svg className="w-4 h-4 mb-0.5 text-red-400/70" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                         </svg>
-                        <span className={`font-bold text-xs text-center leading-tight transition-all ${selectedToken ? 'text-white/50' : 'text-white/30'}`}>
+                        <span className="font-bold text-xs text-center leading-tight text-red-400/70">
                           {token.symbol}
                         </span>
                       </>
                     ) : (
-                      <span className={`font-bold text-xs text-center leading-tight ${
-                        selectedToken === token.symbol 
-                          ? 'text-amber-400' 
-                          : 'text-white/80 group-hover:text-amber-400'
-                      }`}>
-                        {token.symbol}
-                      </span>
+                      <>
+                        {token.chainType === 'evm' && (
+                          <span className="text-[8px] text-cyan-400 font-bold mb-0.5">EVM</span>
+                        )}
+                        <span className={`font-bold text-xs text-center leading-tight ${
+                          selectedToken === token.symbol 
+                            ? 'text-amber-400' 
+                            : 'text-white/80 group-hover:text-amber-400'
+                        }`}>
+                          {token.symbol}
+                        </span>
+                      </>
                     )}
                   </div>
                   
-                  {/* Selected indicator */}
                   {selectedToken === token.symbol && (
                     <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center shadow-lg border-2 border-amber-500">
                       <svg className="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 20 20">
@@ -1159,22 +928,189 @@ function QueueMatchPage() {
               );
               })}
             </div>
+
+            {/* Third row - 5 EVM tokens (centered) */}
+            <div className="flex justify-center" style={{ gap: '4px', marginTop: '-17px' }}>
+              {TOKENS.slice(14, 19).map((token, index) => {
+                const isTaken = isTokenTaken(token.symbol);
+                
+                return (
+                <button
+                  key={token.symbol}
+                  onClick={() => handleTokenSelect(token.symbol)}
+                  disabled={isTaken}
+                  className={`group relative transition-all ${isTaken ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:scale-110 hover:z-10'}`}
+                  style={{ width: '72px', height: '84px' }}
+                >
+                  <svg 
+                    className={`absolute inset-0 w-full h-full transition-all ${
+                      selectedToken === token.symbol 
+                        ? 'drop-shadow-[0_0_12px_rgba(251,191,36,0.6)]' 
+                        : isTaken
+                          ? ''
+                          : 'group-hover:drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]'
+                    }`}
+                    viewBox="0 0 72 84"
+                  >
+                    <polygon 
+                      points="36,2 70,22 70,62 36,82 2,62 2,22" 
+                      className={`transition-all ${
+                        selectedToken === token.symbol
+                          ? 'fill-amber-400/30'
+                          : isTaken
+                            ? 'fill-red-500/20'
+                            : selectedToken
+                              ? 'fill-white/20 group-hover:fill-white/25'
+                              : 'fill-white/5 group-hover:fill-white/10'
+                      }`}
+                    />
+                    <polygon 
+                      points="36,2 70,22 70,62 36,82 2,62 2,22" 
+                      fill="none"
+                      className={`transition-all ${
+                        selectedToken === token.symbol
+                          ? 'stroke-amber-400'
+                          : isTaken
+                            ? 'stroke-red-500/50'
+                            : selectedToken
+                              ? 'stroke-white/30 group-hover:stroke-amber-400/60'
+                              : 'stroke-white/10 group-hover:stroke-amber-400/60'
+                      }`}
+                      strokeWidth="1.5"
+                    />
+                  </svg>
+                  
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    {isTaken ? (
+                      <>
+                        <svg className="w-4 h-4 mb-0.5 text-red-400/70" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                        <span className="font-bold text-xs text-center leading-tight text-red-400/70">
+                          {token.symbol}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[8px] text-cyan-400 font-bold mb-0.5">EVM</span>
+                        <span className={`font-bold text-xs text-center leading-tight ${
+                          selectedToken === token.symbol 
+                            ? 'text-amber-400' 
+                            : 'text-white/80 group-hover:text-amber-400'
+                        }`}>
+                          {token.symbol}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  
+                  {selectedToken === token.symbol && (
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center shadow-lg border-2 border-amber-500">
+                      <svg className="w-3 h-3 text-gray-900" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  )}
+                </button>
+              );
+              })}
+            </div>
+
+            {/* LOCK IN Button - appears when champion is selected */}
+            {selectedToken && (
+              <div className="absolute right-0 bottom-0 animate-slide-in-right">
+                {userAlreadyInArena ? (
+                  <div className="bg-amber-500/20 text-amber-400 font-black text-xl px-10 py-5 rounded-2xl border-2 border-amber-500/50 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      ALREADY ENTERED
+                    </div>
+                    <p className="text-amber-400/70 text-xs mt-1 font-normal">
+                      You entered with {playerCheck?.playerEntry?.assetSymbol}
+                    </p>
+                  </div>
+                ) : txStatus === 'success' ? (
+                  <div className="bg-amber-500/20 text-amber-400 font-black text-xl px-10 py-5 rounded-2xl border-2 border-amber-500/50 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      LOCKED IN!
+                    </div>
+                    {txSignature && (
+                      <a 
+                        href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-amber-400/70 text-xs mt-1 font-normal underline hover:text-amber-300"
+                      >
+                        View transaction ↗
+                      </a>
+                    )}
+                  </div>
+                ) : txStatus === 'error' ? (
+                  <div className="space-y-2">
+                    <div className="bg-red-500/20 text-red-400 font-bold text-sm py-3 px-4 rounded-xl border border-red-500/50 text-center max-w-[280px]">
+                      {txError || 'Transaction failed'}
+                    </div>
+                    <button 
+                      className="w-full bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-xl py-4 rounded-2xl transition-all cursor-pointer border-2 border-amber-500/50"
+                      onClick={handleLockIn}
+                    >
+                      TRY AGAIN
+                    </button>
+                  </div>
+                ) : !connected ? (
+                  <button 
+                    className="bg-zinc-600 text-zinc-300 font-black text-xl px-10 py-5 rounded-2xl border-2 border-zinc-500/50 cursor-not-allowed"
+                    disabled
+                  >
+                    CONNECT WALLET
+                  </button>
+                ) : hasInsufficientBalance() ? (
+                  <div className="space-y-2 text-center">
+                    <button 
+                      className="bg-red-500/20 text-red-400 font-black text-xl px-10 py-5 rounded-2xl border-2 border-red-500/50 cursor-not-allowed"
+                      disabled
+                    >
+                      INSUFFICIENT SOL
+                    </button>
+                    <p className="text-red-400 text-xs">
+                      Need {(entryFee + 0.01).toFixed(3)} SOL • You have {solBalance.toFixed(4)} SOL
+                    </p>
+                  </div>
+                ) : txStatus === 'signing' || txStatus === 'confirming' || isEntering ? (
+                  <button 
+                    className="bg-amber-400/50 text-gray-900 font-black text-xl px-10 py-5 rounded-2xl border-2 border-amber-500/50 cursor-wait flex items-center justify-center gap-3"
+                    disabled
+                  >
+                    <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    {txStatus === 'signing' ? 'APPROVE IN WALLET...' : 'CONFIRMING...'}
+                  </button>
+                ) : (
+                  <div className="flex flex-col items-end gap-2">
+                    <button 
+                      className="bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-2xl px-12 py-5 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer border-2 border-amber-500/50 shadow-lg shadow-amber-500/30"
+                      style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                      onClick={handleLockIn}
+                    >
+                      LOCK IN
+                    </button>
+                    <p className="text-white/60 text-xs">
+                      Entry: {entryFee} SOL • Champion: <span className="text-amber-400 font-bold">{selectedToken}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Loading overlay */}
-      {showLoadingIndicator && (
-        <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center animate-fade-in">
-          <div className="bg-zinc-900/90 rounded-2xl p-6 flex items-center gap-4 border border-zinc-700">
-            <svg className="w-6 h-6 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
-            <span className="text-white font-bold">Loading {selectedToken} data...</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

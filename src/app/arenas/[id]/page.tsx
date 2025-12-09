@@ -28,10 +28,6 @@ interface PlayerEntry {
   playerIndex: number;
   assetIndex: number;
   assetSymbol: string;
-  tokenAmount: number;
-  usdValue: number;
-  entryPrice?: number;
-  actualUsdValue?: number;
   entryTimestamp: string;
   isWinner?: boolean;
 }
@@ -54,6 +50,7 @@ interface ArenaDetail {
   statusLabel: string;
   playerCount: number;
   assetCount: number;
+  totalPoolSol: number;
   totalPoolUsd: number;
   startTimestamp: string | null;
   endTimestamp: string | null;
@@ -74,16 +71,16 @@ interface UserProfile {
 const ArenaStatus = {
   Uninitialized: 0,
   Waiting: 1,
-  Ready: 2,
-  Active: 3,
-  Ended: 4,
-  Suspended: 5,
-  Starting: 6,
-  Ending: 7,
+  Active: 2,
+  Ended: 3,
+  Canceled: 4,
 };
 
-// Token symbols
-const TOKEN_SYMBOLS = ['SOL', 'TRUMP', 'PUMP', 'BONK', 'JUP', 'PENGU', 'PYTH', 'HNT', 'FARTCOIN', 'RAY', 'JTO', 'KMNO', 'MET', 'W'];
+// Token symbols (including EVM tokens)
+const TOKEN_SYMBOLS = [
+  'SOL', 'TRUMP', 'PUMP', 'BONK', 'JUP', 'PENGU', 'PYTH', 'HNT', 'FARTCOIN', 'RAY', 'JTO', 'KMNO', 'MET', 'W',
+  'ETH', 'UNI', 'LINK', 'PEPE', 'SHIB'
+];
 
 function ArenaDetailPage() {
   const router = useRouter();
@@ -171,10 +168,8 @@ function ArenaDetailPage() {
       return;
     }
     
-    // For active/starting/ending arenas, fetch live volatility data
-    if (arena.status !== ArenaStatus.Active && 
-        arena.status !== ArenaStatus.Starting && 
-        arena.status !== ArenaStatus.Ending) {
+    // For active arenas, fetch live volatility data
+    if (arena.status !== ArenaStatus.Active) {
       return;
     }
     
@@ -229,12 +224,9 @@ function ArenaDetailPage() {
     const styles: Record<number, string> = {
       [ArenaStatus.Uninitialized]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
       [ArenaStatus.Waiting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-      [ArenaStatus.Ready]: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
       [ArenaStatus.Active]: 'bg-sky-500/20 text-sky-400 border-sky-500/40 animate-pulse',
       [ArenaStatus.Ended]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
-      [ArenaStatus.Suspended]: 'bg-red-500/20 text-red-400 border-red-500/40',
-      [ArenaStatus.Starting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-      [ArenaStatus.Ending]: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
+      [ArenaStatus.Canceled]: 'bg-red-500/20 text-red-400 border-red-500/40',
     };
     
     return (
@@ -267,16 +259,10 @@ function ArenaDetailPage() {
     return entry.assetIndex === arena.winningAsset;
   };
 
-  // Calculate winnings
-  const calculateWinnings = (entry: PlayerEntry) => {
-    if (!arena || !isWinner(entry)) return 0;
-    
-    // Winners get their share of 90% of the pool
-    const winnersCount = arena.playerEntries.filter(p => p.assetIndex === arena.winningAsset).length;
-    const loserPool = arena.totalPoolUsd - arena.playerEntries.filter(p => p.assetIndex === arena.winningAsset).reduce((sum, p) => sum + p.usdValue, 0);
-    const winnerShare = (loserPool * 0.9) / winnersCount;
-    
-    return entry.usdValue + winnerShare;
+  // Calculate winnings (90% of total pool in SOL goes to winner)
+  const calculateWinnings = () => {
+    if (!arena) return 0;
+    return (arena.totalPoolSol || 0) * 0.9;
   };
 
   // Get asset volatility from real-time data (same as charts use)
@@ -333,7 +319,6 @@ function ArenaDetailPage() {
     const profile = userProfiles[entry.playerWallet];
     const isCurrentUser = publicKey && entry.playerWallet === publicKey.toBase58();
     const playerIsWinner = isWinner(entry);
-    const winnings = calculateWinnings(entry);
     const volatilityPercent = getAssetVolatility(entry.assetIndex); // Already in percent from API
     
     // Check if this player's token is currently leading
@@ -360,7 +345,7 @@ function ArenaDetailPage() {
         )}
         
         {/* Winning badge for live/active arenas (currently leading) */}
-        {!playerIsWinner && isLeading && (arena?.status === ArenaStatus.Active || arena?.status === ArenaStatus.Starting || arena?.status === ArenaStatus.Ending) && (
+        {!playerIsWinner && isLeading && arena?.status === ArenaStatus.Active && (
           <div className="absolute top-0 left-0 bg-gradient-to-r from-sky-400 to-cyan-400 text-gray-900 px-4 py-1.5 text-xs font-bold rounded-br-xl shadow-lg">
             WINNING
           </div>
@@ -413,21 +398,21 @@ function ArenaDetailPage() {
             </div>
             
             {/* Volatility (for live/active arenas) */}
-            {showVolatility && (arena?.status === ArenaStatus.Active || arena?.status === ArenaStatus.Ending) && (
+            {showVolatility && arena?.status === ArenaStatus.Active && (
               <div className="text-center px-3">
                 <p className={`text-lg font-bold ${
                   volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
                 }`}>
-                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(2)}%
+                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
                 </p>
                 <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
               </div>
             )}
             
-            {/* Token & Value */}
+            {/* Token Symbol */}
             <div className="text-right">
               <div className="flex items-center gap-2 justify-end">
-                <span className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
+                <span className={`px-4 py-2 rounded-lg text-base font-bold ${
                   playerIsWinner 
                     ? 'bg-amber-400/20 text-amber-400 border border-amber-500/40' 
                     : isLeading
@@ -437,43 +422,19 @@ function ArenaDetailPage() {
                   {entry.assetSymbol}
                 </span>
               </div>
-              {/* Token amount */}
-              <p className="text-white/60 text-xs mt-1">
-                {entry.tokenAmount.toFixed(6)} {entry.assetSymbol}
-              </p>
-              {/* Show actual USD value if available, otherwise show submitted value */}
-              {entry.actualUsdValue ? (
-                <>
-                  <p className="text-white/40 text-sm mt-0.5">
-                    ${entry.actualUsdValue.toFixed(2)} entry
-                  </p>
-                  <p className="text-white/20 text-[10px]">
-                    (${entry.usdValue.toFixed(2)} locked)
-                  </p>
-                </>
-              ) : (
-                <p className="text-white/40 text-sm mt-0.5">
-                  ${entry.usdValue.toFixed(2)} entry
-                </p>
-              )}
               {playerIsWinner && arena?.status === ArenaStatus.Ended && (
-                <>
-                  <p className="text-green-400 text-sm font-bold mt-1">
-                    +${(winnings - entry.usdValue).toFixed(2)} won
-                  </p>
-                  <p className={`text-xs mt-0.5 ${
-                    volatilityPercent > 0 ? 'text-green-400/80' : volatilityPercent < 0 ? 'text-red-400/80' : 'text-white/30'
-                  }`}>
-                    {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(2)}% volatility
-                  </p>
-                </>
+                <p className={`text-xs mt-2 ${
+                  volatilityPercent > 0 ? 'text-green-400/80' : volatilityPercent < 0 ? 'text-red-400/80' : 'text-white/30'
+                }`}>
+                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}% volatility
+                </p>
               )}
               {/* Show volatility for ended arenas (non-winners) */}
               {arena?.status === ArenaStatus.Ended && !playerIsWinner && (
-                <p className={`text-sm mt-1 ${
+                <p className={`text-sm mt-2 ${
                   volatilityPercent > 0 ? 'text-green-400/70' : volatilityPercent < 0 ? 'text-red-400/70' : 'text-white/30'
                 }`}>
-                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(2)}%
+                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
                 </p>
               )}
             </div>
@@ -547,6 +508,29 @@ function ArenaDetailPage() {
             </div>
           ) : arena && (
             <>
+              {/* Starting Soon Banner - for Waiting arenas */}
+              {arena.status === ArenaStatus.Waiting && (
+                <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/20 backdrop-blur-xl rounded-2xl border border-amber-500/30 p-6 mb-6 animate-pulse">
+                  <div className="flex items-center justify-center gap-4">
+                    <svg className="w-8 h-8 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <div className="text-center">
+                      <h2 
+                        className="text-2xl text-amber-400 tracking-wider mb-1"
+                        style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                      >
+                        ARENA STARTING SOON
+                      </h2>
+                      <p className="text-amber-400/70 text-sm">
+                        The arena will begin automatically. Please wait...
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Header */}
               <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 mb-6 relative">
                 {/* Decorative glow - with overflow clipping */}
@@ -578,13 +562,13 @@ function ArenaDetailPage() {
                       </svg>
                     </p>
                     <p className="text-3xl font-bold bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">
-                      ${arena.totalPoolUsd.toFixed(0)}
+                      {(arena.totalPoolSol || 0).toFixed(2)} SOL
                     </p>
                     
                     {/* Tooltip */}
                     <div className="absolute bottom-full right-0 mb-2 opacity-0 group-hover/pool:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999]">
                       <div className="bg-zinc-900/95 backdrop-blur-md rounded-lg px-3 py-2 border border-zinc-700/80 shadow-xl whitespace-nowrap">
-                        <p className="text-white text-xs">Calculated at current market prices</p>
+                        <p className="text-white text-xs">≈ ${(arena.totalPoolUsd || 0).toFixed(2)} USD</p>
                         <div className="absolute top-full right-4 -mt-1 border-4 border-transparent border-t-zinc-900/95"></div>
                       </div>
                     </div>
@@ -606,7 +590,7 @@ function ArenaDetailPage() {
                     <p className="text-sm font-medium text-white/70">{formatTime(arena.startTimestamp)}</p>
                   </div>
                   <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 text-center border border-white/5">
-                    {arena.status === ArenaStatus.Active || arena.status === ArenaStatus.Starting || arena.status === ArenaStatus.Ending ? (
+                    {arena.status === ArenaStatus.Active ? (
                       // Check if end time is in the past
                       arena.endTimestamp && new Date(arena.endTimestamp) < currentTime ? (
                         <p className="text-sm font-medium text-orange-400 animate-pulse">ARENA IS ENDING</p>
@@ -628,7 +612,7 @@ function ArenaDetailPage() {
               </div>
 
               {/* Chart Section - Show for Active arenas */}
-              {(arena.status === ArenaStatus.Active || arena.status === ArenaStatus.Starting || arena.status === ArenaStatus.Ending) && (
+              {arena.status === ArenaStatus.Active && (
                 <div className="mb-6">
                   {/* View Mode Toggle */}
                   <div className="flex items-center justify-between mb-4">
@@ -721,7 +705,7 @@ function ArenaDetailPage() {
                 )}
 
                 {/* Live Standings - For active arenas */}
-                {(arena.status === ArenaStatus.Active || arena.status === ArenaStatus.Starting || arena.status === ArenaStatus.Ending) && arena.playerCount > 0 && (
+                {arena.status === ArenaStatus.Active && arena.playerCount > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
@@ -765,8 +749,8 @@ function ArenaDetailPage() {
                   </section>
                 )}
 
-                {/* Waiting participants - For waiting/ready arenas */}
-                {(arena.status === ArenaStatus.Waiting || arena.status === ArenaStatus.Ready) && (
+                {/* Waiting participants - For waiting arenas */}
+                {arena.status === ArenaStatus.Waiting && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <h2 className="text-lg font-bold text-white uppercase tracking-wider">

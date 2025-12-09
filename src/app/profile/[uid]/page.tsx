@@ -68,9 +68,8 @@ interface UserEntry {
   playerIndex: number;
   assetIndex: number;
   assetSymbol: string;
-  tokenAmount: number;
-  usdValue: number;
   isWinner: boolean;
+  hasClaimed: boolean;
   entryTimestamp: string | null;
 }
 
@@ -97,22 +96,20 @@ interface MatchArena {
   isSuspended: boolean;
   startTimestamp: string | null;
   endTimestamp: string | null;
+  totalPoolSol: number;
   totalPoolUsd: number;
   createdAt: string;
   userEntry: UserEntry | null;
   arenaAssets: ArenaAsset[];
 }
 
-// Arena status constants
+// Arena status constants (matching new cryptarena-sol program)
 const ArenaStatus = {
   Uninitialized: 0,
   Waiting: 1,
-  Ready: 2,
-  Active: 3,
-  Ended: 4,
-  Suspended: 5,
-  Starting: 6,
-  Ending: 7,
+  Active: 2,
+  Ended: 3,
+  Canceled: 4,
 };
 
 // Get mastery rank based on score (matches backend thresholds)
@@ -294,12 +291,9 @@ function ProfilePage() {
     const styles: Record<number, string> = {
       [ArenaStatus.Uninitialized]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
       [ArenaStatus.Waiting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-      [ArenaStatus.Ready]: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-      [ArenaStatus.Active]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
+      [ArenaStatus.Active]: 'bg-sky-500/20 text-sky-400 border-sky-500/40 animate-pulse',
       [ArenaStatus.Ended]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
-      [ArenaStatus.Suspended]: 'bg-red-500/20 text-red-400 border-red-500/40',
-      [ArenaStatus.Starting]: 'bg-sky-500/20 text-sky-400 border-sky-500/40',
-      [ArenaStatus.Ending]: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
+      [ArenaStatus.Canceled]: 'bg-red-500/20 text-red-400 border-red-500/40',
     };
     
     return (
@@ -356,13 +350,12 @@ function ProfilePage() {
               <div className="space-y-3">
                 {matchHistory.map((arena) => {
                   // Determine if user won by comparing their asset with the winning asset
-                  // (isWinner flag is only set after claiming, so we check the asset index)
                   const userAssetIndex = arena.userEntry?.assetIndex;
                   const userWon = arena.winningAsset !== null && userAssetIndex === arena.winningAsset;
                   const userChampion = arena.userEntry?.assetSymbol || '?';
-                  const userUsdValue = arena.userEntry?.usdValue || 0;
                   const winningChampion = arena.winningAssetSymbol;
                   const isEnded = arena.status === ArenaStatus.Ended;
+                  const isCanceled = arena.status === ArenaStatus.Canceled;
                   
                   return (
                     <div
@@ -373,7 +366,9 @@ function ProfilePage() {
                           ? 'border-amber-500/40 hover:border-amber-400/60 hover:shadow-lg hover:shadow-amber-500/10'
                           : isEnded && !userWon
                             ? 'border-red-500/30 hover:border-red-400/50'
-                            : 'border-white/10 hover:border-sky-400/40 hover:shadow-lg hover:shadow-sky-500/10'
+                            : isCanceled
+                              ? 'border-zinc-500/30 hover:border-zinc-400/50'
+                              : 'border-white/10 hover:border-sky-400/40 hover:shadow-lg hover:shadow-sky-500/10'
                       }`}
                     >
                       {/* Top accent line */}
@@ -382,7 +377,9 @@ function ProfilePage() {
                           ? 'bg-gradient-to-r from-amber-400 to-yellow-400'
                           : isEnded && !userWon
                             ? 'bg-gradient-to-r from-red-500 to-red-400'
-                            : 'bg-sky-400'
+                            : isCanceled
+                              ? 'bg-zinc-500'
+                              : 'bg-sky-400'
                       }`} />
                       
                       <div className="p-5">
@@ -395,7 +392,9 @@ function ProfilePage() {
                                 ? 'bg-amber-500/20'
                                 : isEnded && !userWon
                                   ? 'bg-red-500/20'
-                                  : 'bg-sky-500/20'
+                                  : isCanceled
+                                    ? 'bg-zinc-500/20'
+                                    : 'bg-sky-500/20'
                             }`}>
                               {userWon && isEnded ? (
                                 <svg className="w-6 h-6 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
@@ -404,6 +403,10 @@ function ProfilePage() {
                               ) : isEnded && !userWon ? (
                                 <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              ) : isCanceled ? (
+                                <svg className="w-6 h-6 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                                 </svg>
                               ) : (
                                 <svg className="w-6 h-6 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -440,14 +443,11 @@ function ProfilePage() {
                             {/* User's champion */}
                             <div className="text-center">
                               <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Your Champion</p>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-lg font-bold ${
-                                  userWon && isEnded ? 'text-amber-400' : 'text-white'
-                                }`}>
-                                  {userChampion}
-                                </span>
-                                <span className="text-white/30 text-sm">${userUsdValue.toFixed(2)}</span>
-                              </div>
+                              <span className={`text-lg font-bold ${
+                                userWon && isEnded ? 'text-amber-400' : 'text-white'
+                              }`}>
+                                {userChampion}
+                              </span>
                             </div>
                             
                             {/* Winning champion (if ended) */}
@@ -466,28 +466,37 @@ function ProfilePage() {
                             <div className="text-right">
                               <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Pool</p>
                               <p className="text-xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">
-                                ${arena.totalPoolUsd.toFixed(0)}
+                                {(arena.totalPoolSol || 0).toFixed(2)} SOL
                               </p>
                             </div>
                             
-                            {/* Claim Button - Only show for winners on own profile */}
+                            {/* Claim Button or Claimed Badge - Only for winners on own profile */}
                             {userWon && isEnded && connected && publicKey && 
                               profile?.wallets.some(w => w.address === publicKey.toBase58()) && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedArenaForClaim(arena);
-                                  setClaimSidebarOpen(true);
-                                }}
-                                className="group relative px-6 py-3 bg-amber-400 hover:bg-amber-300 text-gray-900 text-base font-black rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/30 hover:scale-105 overflow-hidden"
-                              >
-                                {/* Animated border gradient - white lines effect */}
-                                <span className="absolute inset-0 rounded-xl">
-                                  <span className="absolute inset-[-3px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)] animate-[spin_4s_linear_infinite]" />
-                                  <span className="absolute inset-[2px] rounded-lg bg-amber-400 group-hover:bg-amber-300 transition-colors" />
-                                </span>
-                                <span className="relative z-10">Claim Rewards</span>
-                              </button>
+                              arena.userEntry?.hasClaimed ? (
+                                <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 rounded-xl border border-green-500/40">
+                                  <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  <span className="text-green-400 font-bold text-xs">Rewards Claimed</span>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedArenaForClaim(arena);
+                                    setClaimSidebarOpen(true);
+                                  }}
+                                  className="group relative px-6 py-3 bg-amber-400 hover:bg-amber-300 text-gray-900 text-base font-black rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/30 hover:scale-105 overflow-hidden"
+                                >
+                                  {/* Animated border gradient - white lines effect */}
+                                  <span className="absolute inset-0 rounded-xl">
+                                    <span className="absolute inset-[-3px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)] animate-[spin_4s_linear_infinite]" />
+                                    <span className="absolute inset-[2px] rounded-lg bg-amber-400 group-hover:bg-amber-300 transition-colors" />
+                                  </span>
+                                  <span className="relative z-10">Claim Rewards</span>
+                                </button>
+                              )
                             )}
                             
                             {/* Arrow */}
@@ -754,7 +763,7 @@ function ProfilePage() {
             arenaId: selectedArenaForClaim.arenaId,
             winningAsset: selectedArenaForClaim.winningAsset,
             winningAssetSymbol: selectedArenaForClaim.winningAssetSymbol,
-            playerEntries: [], // Will be fetched by the sidebar
+            totalPoolSol: selectedArenaForClaim.totalPoolSol,
             totalPoolUsd: selectedArenaForClaim.totalPoolUsd,
           }}
           onClaimSuccess={() => {

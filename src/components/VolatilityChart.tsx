@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { indexerApi, AssetVolatilityData, VolatilityPoint } from '@/lib/indexer-api';
 
-// Token colors - distinct colors for each token
+// Token colors - distinct colors for each token (including EVM tokens)
 const TOKEN_COLORS: Record<string, string> = {
   SOL: '#14F195',
   TRUMP: '#FF6B6B',
@@ -19,6 +19,12 @@ const TOKEN_COLORS: Record<string, string> = {
   KMNO: '#E74C3C',
   MET: '#1ABC9C',
   W: '#F39C12',
+  // EVM tokens
+  ETH: '#627EEA',
+  UNI: '#FF007A',
+  LINK: '#2A5ADA',
+  PEPE: '#00B386',
+  SHIB: '#FFA500',
 };
 
 interface VolatilityChartProps {
@@ -252,8 +258,7 @@ export default function VolatilityChart({
       ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
       ctx.font = '9px monospace';
       ctx.textAlign = 'center';
-      const precision = range < 1 ? 2 : range < 10 ? 1 : 0;
-      ctx.fillText(`${vol >= 0 ? '+' : ''}${vol.toFixed(precision)}%`, x, height - PADDING.bottom + 30);
+      ctx.fillText(`${vol >= 0 ? '+' : ''}${vol.toFixed(4)}%`, x, height - PADDING.bottom + 30);
     });
 
     const displayPositions = displayPositionsForRange;
@@ -329,7 +334,7 @@ export default function VolatilityChart({
       ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(
-        `${volatility >= 0 ? '+' : ''}${volatility.toFixed(2)}%`,
+        `${volatility >= 0 ? '+' : ''}${volatility.toFixed(4)}%`,
         width - 12,
         trackY + 1
       );
@@ -469,7 +474,7 @@ export default function VolatilityChart({
             <span className={`text-xs font-bold ml-auto ${
               champ.currentVolatility >= 0 ? 'text-sky-400' : 'text-red-400'
             }`}>
-              {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(1)}%
+              {champ.currentVolatility >= 0 ? '+' : ''}{champ.currentVolatility.toFixed(4)}%
             </span>
           </div>
         ))}

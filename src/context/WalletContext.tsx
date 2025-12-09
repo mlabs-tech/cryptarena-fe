@@ -176,9 +176,22 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // Handle wallet errors gracefully - clear stale wallet cache on connection errors
+  const onError = useCallback((error: Error) => {
+    console.warn('Wallet error:', error.message);
+    // Clear stale wallet cache to prevent reconnection loops
+    if (error.name === 'WalletConnectionError') {
+      try {
+        localStorage.removeItem('walletName');
+      } catch (e) {
+        // localStorage might not be available
+      }
+    }
+  }, []);
+
   return (
     <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
+      <WalletProvider wallets={wallets} autoConnect onError={onError}>
         <WalletContextProvider>
           {children}
         </WalletContextProvider>

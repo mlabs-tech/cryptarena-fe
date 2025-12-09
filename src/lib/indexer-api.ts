@@ -33,6 +33,11 @@ export interface CurrentArena {
   endTimestamp: string | null;
   playerEntries: PlayerEntry[];
   arenaAssets: ArenaAsset[];
+  // Countdown info for waiting room (10 minutes from first player)
+  countdownStartAt?: string;
+  countdownEndsAt?: string;
+  countdownRemainingMs?: number;
+  countdownDurationMs?: number;
 }
 
 export interface CurrentArenaResponse {

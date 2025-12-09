@@ -3,26 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useCryptarena } from '@/hooks/useCryptarena';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { indexerApi, LatestPriceData } from '@/lib/indexer-api';
-
-interface PlayerEntry {
-  playerWallet: string;
-  playerIndex: number;
-  assetIndex: number;
-  assetSymbol: string;
-  tokenAmount: number;
-  usdValue: number;
-  isWinner: boolean;
-  ownTokensClaimed?: boolean;
-  rewardsClaimedCount?: number;
-  rewardsClaimedBitmap?: string; // u128 as string
-}
 
 interface ArenaData {
   arenaId: string;
   winningAsset: number | null;
   winningAssetSymbol: string | null;
-  playerEntries: PlayerEntry[];
+  totalPoolSol: number;
   totalPoolUsd: number;
 }
 
@@ -33,282 +19,65 @@ interface ClaimRewardsSidebarProps {
   onClaimSuccess?: () => void;
 }
 
-interface ClaimableReward {
-  type: 'own' | 'loser';
-  tokenSymbol: string;
-  assetIndex: number;
-  amount: number;
-  entryUsdValue: number; // Original USD value at entry time
-  currentUsdValue: number; // Current USD value based on latest price
-  hasLivePrice: boolean; // Whether we have a live price or using fallback
-  loserWallet?: string;
-  loserIndex?: number;
-  claimed: boolean;
-}
-
 const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL || 'http://localhost:3001';
-
-// CoinMarketCap token IDs mapping
-const TOKEN_CMC_IDS: Record<number, number> = {
-  0: 5426,   // SOL Solana
-  1: 35336,  // TRUMP OfficialTrump
-  2: 36507,  // PUMP Pump.fun
-  3: 23095,  // BONK Bonk
-  4: 29210,  // JUP Jupyter
-  5: 34466,  // PENGU PudgyPenguins
-  6: 28177,  // PYTH PythNetwork
-  7: 5665,   // HNT Helium
-  8: 33597,  // FARTCOIN
-  9: 8526,   // RAY Raydum
-  10: 28541, // JTO Jito
-  11: 30986, // KMNO Kamino Finance
-  12: 38353, // MET Meteora
-  13: 29587, // W Wormhole
-};
-
-// Fetch prices from CoinMarketCap for missing assets
-async function fetchCMCPrices(assetIndices: number[]): Promise<Map<number, number>> {
-  const priceMap = new Map<number, number>();
-  
-  if (assetIndices.length === 0) return priceMap;
-  
-  const cmcIds = assetIndices
-    .map(idx => TOKEN_CMC_IDS[idx])
-    .filter(id => id !== undefined);
-  
-  if (cmcIds.length === 0) return priceMap;
-  
-  try {
-    // Use a proxy or server-side route to avoid CORS issues
-    // For now, we'll call our own API route that proxies to CMC
-    const response = await fetch(`/api/cmc-prices?ids=${cmcIds.join(',')}`);
-    
-    if (!response.ok) {
-      console.warn('CMC API fallback failed:', response.status);
-      return priceMap;
-    }
-    
-    const data = await response.json();
-    
-    // Map CMC IDs back to asset indices
-    for (const [indexStr, cmcId] of Object.entries(TOKEN_CMC_IDS)) {
-      const assetIndex = parseInt(indexStr);
-      if (assetIndices.includes(assetIndex) && data.prices?.[cmcId]) {
-        priceMap.set(assetIndex, data.prices[cmcId]);
-      }
-    }
-  } catch (error) {
-    console.error('CMC price fetch error:', error);
-  }
-  
-  return priceMap;
-}
 
 export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuccess }: ClaimRewardsSidebarProps) {
   const { publicKey } = useWallet();
-  const { claimOwnTokens, claimLoserTokens, isLoading, getTokenSymbol } = useCryptarena();
+  const { claimWinnerRewards, isLoading } = useCryptarena();
   
-  const [claimableRewards, setClaimableRewards] = useState<ClaimableReward[]>([]);
-  const [claimingIndex, setClaimingIndex] = useState<number | null>(null);
-  const [claimedIndices, setClaimedIndices] = useState<Set<number>>(new Set());
+  const [claiming, setClaiming] = useState(false);
+  const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [latestPrices, setLatestPrices] = useState<Map<number, number>>(new Map());
-  const [pricesLoaded, setPricesLoaded] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
 
-  // Fetch latest prices from indexer, with CMC fallback for missing prices
-  const fetchLatestPrices = useCallback(async (requiredAssets?: number[]) => {
-    try {
-      // First, get prices from the indexer
-      const response = await indexerApi.getLatestPrices();
-      const priceMap = new Map<number, number>();
-      response.data.forEach((p: LatestPriceData) => {
-        if (p.price > 0) {
-          priceMap.set(p.assetIndex, p.price);
-        }
-      });
-      
-      // Check for missing prices from required assets
-      const missingAssets = requiredAssets?.filter(idx => !priceMap.has(idx) || priceMap.get(idx) === 0) || [];
-      
-      // If there are missing prices, fetch from CoinMarketCap as fallback
-      if (missingAssets.length > 0) {
-        console.log('Fetching missing prices from CMC for assets:', missingAssets);
-        const cmcPrices = await fetchCMCPrices(missingAssets);
-        
-        // Merge CMC prices into the map
-        cmcPrices.forEach((price, assetIndex) => {
-          if (price > 0) {
-            priceMap.set(assetIndex, price);
-            console.log(`CMC price for asset ${assetIndex}: $${price}`);
-          }
-        });
-      }
-      
-      setLatestPrices(priceMap);
-      setPricesLoaded(true);
-      return priceMap;
-    } catch (err) {
-      console.error('Failed to fetch latest prices:', err);
-      setPricesLoaded(true);
-      return new Map<number, number>();
-    }
-  }, []);
-
-  // Fetch detailed arena data with claim status
-  const fetchClaimStatus = useCallback(async () => {
+  // Check if rewards have already been claimed
+  const checkClaimStatus = useCallback(async () => {
     if (!publicKey || !arena) return;
 
     try {
-      // First fetch fresh arena data to know which assets we need prices for
-      const arenaResponse = await fetch(`${INDEXER_URL}/api/v1/arenas/${arena.arenaId}`);
-      if (!arenaResponse.ok) throw new Error('Failed to fetch arena');
+      setCheckingStatus(true);
+      const response = await fetch(`${INDEXER_URL}/api/v1/arenas/${arena.arenaId}`);
+      if (!response.ok) return;
       
-      const freshArena = await arenaResponse.json();
-      
-      // Get all unique asset indices from player entries
-      const requiredAssets = [...new Set(
-        freshArena.playerEntries?.map((e: PlayerEntry) => e.assetIndex) || []
-      )] as number[];
-      
-      // Fetch prices with CMC fallback for missing assets
-      const priceMap = await fetchLatestPrices(requiredAssets);
+      const arenaData = await response.json();
       
       // Find user's entry
-      const userEntry = freshArena.playerEntries?.find(
-        (e: PlayerEntry) => e.playerWallet === publicKey.toBase58()
+      const userEntry = arenaData.playerEntries?.find(
+        (e: { playerWallet: string; isWinner: boolean }) => e.playerWallet === publicKey.toBase58()
       );
 
-      if (!userEntry || arena.winningAsset === null) {
-        setClaimableRewards([]);
-        return;
+      // Check if user is winner and has already claimed
+      if (userEntry && userEntry.isWinner) {
+        setClaimed(true);
       }
-
-      // Check if user is a winner
-      if (userEntry.assetIndex !== arena.winningAsset) {
-        setClaimableRewards([]);
-        return;
-      }
-
-      const rewards: ClaimableReward[] = [];
-
-      // Helper to calculate current USD value
-      // Falls back to entry price if no live price is available
-      const getCurrentUsdValue = (assetIndex: number, tokenAmount: number, entryUsdValue: number): { value: number; hasLivePrice: boolean } => {
-        const price = priceMap.get(assetIndex);
-        if (price && price > 0) {
-          return { value: tokenAmount * price, hasLivePrice: true };
-        }
-        // If no price available, fall back to entry USD value
-        console.warn(`No live price for asset ${assetIndex}, using entry value`);
-        return { value: entryUsdValue, hasLivePrice: false };
-      };
-
-      // 1. Own tokens (the winner's original entry)
-      const ownCurrentResult = getCurrentUsdValue(userEntry.assetIndex, userEntry.tokenAmount, userEntry.usdValue);
-      rewards.push({
-        type: 'own',
-        tokenSymbol: userEntry.assetSymbol,
-        assetIndex: userEntry.assetIndex,
-        amount: userEntry.tokenAmount,
-        entryUsdValue: userEntry.usdValue,
-        currentUsdValue: ownCurrentResult.value,
-        hasLivePrice: ownCurrentResult.hasLivePrice,
-        claimed: userEntry.ownTokensClaimed || false,
-      });
-
-      // 2. Loser tokens (each loser in the arena)
-      const losers = freshArena.playerEntries?.filter(
-        (e: PlayerEntry) => e.assetIndex !== arena.winningAsset
-      ) || [];
-
-      // Count winners for this arena to split rewards
-      const winnerCount = freshArena.playerEntries?.filter(
-        (e: PlayerEntry) => e.assetIndex === arena.winningAsset
-      ).length || 1;
-
-      // Parse the bitmap from the indexer (stored as string)
-      const rewardsClaimedBitmap = BigInt(userEntry.rewardsClaimedBitmap || '0');
-
-      for (const loser of losers) {
-        // Check if already claimed using the actual bitmap from indexer
-        const loserBit = BigInt(1) << BigInt(loser.playerIndex);
-        const alreadyClaimed = (rewardsClaimedBitmap & loserBit) !== BigInt(0);
-
-        // Calculate share: loser's amount / winner_count, then 90% to winner
-        const sharePerWinner = loser.tokenAmount / winnerCount;
-        const winnerShare = sharePerWinner * 0.9; // 10% goes to treasury
-        const loserEntryValue = (loser.usdValue / winnerCount) * 0.9;
-        
-        // Calculate current USD value for this loser's tokens (with fallback to entry value)
-        const loserCurrentResult = getCurrentUsdValue(loser.assetIndex, winnerShare, loserEntryValue);
-
-        rewards.push({
-          type: 'loser',
-          tokenSymbol: loser.assetSymbol,
-          assetIndex: loser.assetIndex,
-          amount: winnerShare,
-          entryUsdValue: loserEntryValue,
-          currentUsdValue: loserCurrentResult.value,
-          hasLivePrice: loserCurrentResult.hasLivePrice,
-          loserWallet: loser.playerWallet,
-          loserIndex: loser.playerIndex,
-          claimed: alreadyClaimed,
-        });
-      }
-
-      setClaimableRewards(rewards);
     } catch (err) {
-      console.error('Failed to fetch claim status:', err);
+      console.error('Failed to check claim status:', err);
+    } finally {
+      setCheckingStatus(false);
     }
-  }, [publicKey, arena, claimedIndices, fetchLatestPrices]);
+  }, [publicKey, arena]);
 
   useEffect(() => {
     if (isOpen && arena) {
-      fetchClaimStatus();
+      checkClaimStatus();
     }
-  }, [isOpen, arena, fetchClaimStatus]);
+  }, [isOpen, arena, checkClaimStatus]);
 
-  // Handle claiming a reward
-  const handleClaim = async (reward: ClaimableReward, index: number) => {
-    if (!publicKey || reward.claimed || claimingIndex !== null) return;
+  // Handle claiming SOL reward
+  const handleClaim = async () => {
+    if (!publicKey || claiming || claimed) return;
 
-    setClaimingIndex(index);
+    setClaiming(true);
     setError(null);
 
     try {
-      let result;
-
-      if (reward.type === 'own') {
-        result = await claimOwnTokens({
-          arenaId: parseInt(arena.arenaId),
-          tokenSymbol: reward.tokenSymbol,
-        });
-      } else if (reward.loserWallet && arena.winningAsset !== null) {
-        result = await claimLoserTokens({
-          arenaId: parseInt(arena.arenaId),
-          loserWallet: reward.loserWallet,
-          loserTokenSymbol: reward.tokenSymbol,
-          winningAssetIndex: arena.winningAsset,
-        });
-      }
+      const result = await claimWinnerRewards({
+        arenaId: parseInt(arena.arenaId),
+      });
 
       if (result?.success) {
-        // Mark as claimed locally immediately for UI feedback
-        setClaimableRewards(prev => 
-          prev.map((r, i) => i === index ? { ...r, claimed: true } : r)
-        );
-        
-        // Also track in claimedIndices for loser claims
-        if (reward.type === 'loser' && reward.loserIndex !== undefined) {
-          setClaimedIndices(prev => new Set([...prev, reward.loserIndex!]));
-        }
-        
+        setClaimed(true);
         onClaimSuccess?.();
-        
-        // Re-fetch claim status after a short delay to sync with indexer
-        setTimeout(() => {
-          fetchClaimStatus();
-        }, 3000);
       } else {
         setError(result?.error || 'Claim failed');
       }
@@ -316,35 +85,12 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
       console.error('Claim failed:', err);
       setError(err instanceof Error ? err.message : 'Claim failed');
     } finally {
-      setClaimingIndex(null);
+      setClaiming(false);
     }
   };
 
-  // Claim all unclaimed rewards sequentially
-  const handleClaimAll = async () => {
-    const unclaimed = claimableRewards.filter(r => !r.claimed);
-    
-    for (let i = 0; i < claimableRewards.length; i++) {
-      const reward = claimableRewards[i];
-      if (!reward.claimed) {
-        await handleClaim(reward, i);
-        // Small delay between transactions
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-  };
-
-  const totalUnclaimedCurrent = claimableRewards
-    .filter(r => !r.claimed)
-    .reduce((sum, r) => sum + r.currentUsdValue, 0);
-
-  const totalUnclaimedEntry = claimableRewards
-    .filter(r => !r.claimed)
-    .reduce((sum, r) => sum + r.entryUsdValue, 0);
-
-  const allClaimed = claimableRewards.length > 0 && claimableRewards.every(r => r.claimed);
-  
-  const hasMissingPrices = claimableRewards.some(r => !r.hasLivePrice);
+  // Calculate winner's reward (90% of pool)
+  const winnerReward = (arena.totalPoolSol || 0) * 0.9;
 
   if (!isOpen) return null;
 
@@ -372,174 +118,93 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
             </button>
           </div>
           <p className="text-white/50 text-sm">Arena #{arena.arenaId}</p>
-          
-          {/* Total unclaimed */}
-          {totalUnclaimedCurrent > 0 && (
-            <div className="mt-4 p-4 bg-amber-500/10 rounded-xl border border-amber-500/30">
-              <p className="text-amber-400/70 text-xs uppercase tracking-wider mb-1">Total Unclaimed (Current Value)</p>
-              <p className="text-2xl font-bold text-amber-400">${totalUnclaimedCurrent.toFixed(2)}</p>
-              {totalUnclaimedEntry !== totalUnclaimedCurrent && (
-                <p className="text-white/40 text-xs mt-1">
-                  Entry value: ${totalUnclaimedEntry.toFixed(2)}
-                  <span className={`ml-2 ${totalUnclaimedCurrent > totalUnclaimedEntry ? 'text-green-400' : 'text-red-400'}`}>
-                    ({totalUnclaimedCurrent > totalUnclaimedEntry ? '+' : ''}{((totalUnclaimedCurrent - totalUnclaimedEntry) / totalUnclaimedEntry * 100).toFixed(1)}%)
-                  </span>
-                </p>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Rewards List */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
-          {claimableRewards.length === 0 ? (
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {checkingStatus ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                <p className="text-white/50 text-sm">Checking claim status...</p>
+              </div>
+            </div>
+          ) : claimed ? (
             <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
-                <svg className="w-8 h-8 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <p className="text-white/50">No rewards to claim</p>
-              <p className="text-white/30 text-sm mt-1">You may not be a winner or already claimed</p>
+              <p className="text-green-400 font-bold text-xl mb-2">Rewards Claimed!</p>
+              <p className="text-white/50 text-sm">Your SOL has been transferred to your wallet</p>
             </div>
           ) : (
-            <>
-              {/* Own tokens section */}
-              {claimableRewards.filter(r => r.type === 'own').map((reward, idx) => {
-                const priceChange = reward.entryUsdValue > 0 
-                  ? ((reward.currentUsdValue - reward.entryUsdValue) / reward.entryUsdValue * 100)
-                  : 0;
-                return (
-                  <div
-                    key={`own-${idx}`}
-                    className={`p-4 rounded-xl border transition-all ${
-                      reward.claimed
-                        ? 'bg-white/5 border-white/10 opacity-60'
-                        : 'bg-sky-500/10 border-sky-500/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          reward.claimed ? 'bg-white/10' : 'bg-sky-500/20'
-                        }`}>
-                          <span className="text-lg">🎯</span>
-                        </div>
-                        <div>
-                          <p className="text-white font-medium">Your Entry</p>
-                          <p className="text-white/50 text-sm">
-                            {reward.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} {reward.tokenSymbol}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <p className="text-white font-bold">${reward.currentUsdValue.toFixed(2)}</p>
-                        {!reward.hasLivePrice && (
-                          <p className="text-amber-400/70 text-xs">⚠ Entry price (no live data)</p>
-                        )}
-                        {reward.hasLivePrice && reward.currentUsdValue !== reward.entryUsdValue && (
-                          <p className="text-white/40 text-xs">
-                            Entry: ${reward.entryUsdValue.toFixed(2)}
-                            <span className={`ml-1 ${priceChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              ({priceChange >= 0 ? '+' : ''}{priceChange.toFixed(1)}%)
-                            </span>
-                          </p>
-                        )}
-                        {reward.claimed ? (
-                          <span className="text-xs text-green-400">✓ Claimed</span>
-                        ) : (
-                          <button
-                            onClick={() => handleClaim(reward, 0)}
-                            disabled={claimingIndex !== null}
-                            className="mt-1 px-3 py-1 bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                          >
-                            {claimingIndex === 0 ? 'Claiming...' : 'Claim'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Divider */}
-              {claimableRewards.some(r => r.type === 'loser') && (
-                <div className="flex items-center gap-3 py-2">
-                  <div className="flex-1 h-px bg-white/10" />
-                  <span className="text-white/30 text-xs uppercase tracking-wider">Loser Rewards</span>
-                  <div className="flex-1 h-px bg-white/10" />
+            <div className="space-y-6">
+              {/* Winning Token Info */}
+              <div className="bg-amber-500/10 rounded-2xl border border-amber-500/30 p-6 text-center">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+                  <span className="text-3xl">🏆</span>
                 </div>
-              )}
+                <p className="text-amber-400/70 text-xs uppercase tracking-wider mb-2">Winning Champion</p>
+                <p className="text-3xl font-bold text-amber-400 mb-1">{arena.winningAssetSymbol || '?'}</p>
+                <p className="text-white/40 text-sm">Congratulations on your victory!</p>
+              </div>
 
-              {/* Loser tokens */}
-              {claimableRewards.filter(r => r.type === 'loser').map((reward, idx) => {
-                const actualIndex = claimableRewards.findIndex(r => r === reward);
-                const priceChange = reward.entryUsdValue > 0 
-                  ? ((reward.currentUsdValue - reward.entryUsdValue) / reward.entryUsdValue * 100)
-                  : 0;
-                return (
-                  <div
-                    key={`loser-${idx}`}
-                    className={`p-4 rounded-xl border transition-all ${
-                      reward.claimed
-                        ? 'bg-white/5 border-white/10 opacity-60'
-                        : 'bg-amber-500/10 border-amber-500/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          reward.claimed ? 'bg-white/10' : 'bg-amber-500/20'
-                        }`}>
-                          <span className="text-lg font-bold text-amber-400">{reward.tokenSymbol.charAt(0)}</span>
-                        </div>
-                        <div>
-                          <p className="text-white font-medium">{reward.tokenSymbol}</p>
-                          <p className="text-white/50 text-xs font-mono">
-                            from {reward.loserWallet?.slice(0, 4)}...{reward.loserWallet?.slice(-4)}
-                          </p>
-                          <p className="text-white/40 text-xs">
-                            {reward.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} tokens
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <p className="text-white font-bold">${reward.currentUsdValue.toFixed(2)}</p>
-                        {!reward.hasLivePrice && (
-                          <p className="text-amber-400/70 text-xs">⚠ Entry price</p>
-                        )}
-                        {reward.hasLivePrice && reward.currentUsdValue !== reward.entryUsdValue && (
-                          <p className="text-white/40 text-xs">
-                            Entry: ${reward.entryUsdValue.toFixed(2)}
-                            <span className={`ml-1 ${priceChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              ({priceChange >= 0 ? '+' : ''}{priceChange.toFixed(1)}%)
-                            </span>
-                          </p>
-                        )}
-                        {reward.claimed ? (
-                          <span className="text-xs text-green-400">✓ Claimed</span>
-                        ) : (
-                          <button
-                            onClick={() => handleClaim(reward, actualIndex)}
-                            disabled={claimingIndex !== null}
-                            className="mt-1 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-gray-900 text-xs font-bold rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                          >
-                            {claimingIndex === actualIndex ? 'Claiming...' : 'Claim'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
+              {/* Reward Amount */}
+              <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
+                <p className="text-white/40 text-xs uppercase tracking-wider mb-3">Your Reward (90% of Pool)</p>
+                
+                <div className="flex items-end justify-between mb-4">
+                  <div>
+                    <p className="text-4xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">
+                      {winnerReward.toFixed(4)}
+                    </p>
+                    <p className="text-white/50 text-lg">SOL</p>
                   </div>
-                );
-              })}
-            </>
+                  <div className="text-right">
+                    <p className="text-white/40 text-sm">≈ ${((arena.totalPoolUsd || 0) * 0.9).toFixed(2)} USD</p>
+                  </div>
+                </div>
+
+                {/* Pool breakdown */}
+                <div className="bg-white/5 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/40">Total Pool</span>
+                    <span className="text-white">{(arena.totalPoolSol || 0).toFixed(4)} SOL</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/40">Winner Share (90%)</span>
+                    <span className="text-amber-400">{winnerReward.toFixed(4)} SOL</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-white/40">Treasury (10%)</span>
+                    <span className="text-white/60">{((arena.totalPoolSol || 0) * 0.1).toFixed(4)} SOL</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info */}
+              <div className="bg-sky-500/10 rounded-xl p-4 border border-sky-500/20">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-sky-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-sky-400 text-sm font-medium mb-1">How it works</p>
+                    <p className="text-white/50 text-xs">
+                      As the winner, you receive 90% of the total SOL pool. The remaining 10% goes to the treasury. 
+                      Click the button below to claim your reward.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
         {/* Footer */}
-        {claimableRewards.length > 0 && !allClaimed && (
+        {!checkingStatus && !claimed && (
           <div className="p-6 border-t border-white/10">
             {error && (
               <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -548,11 +213,11 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
             )}
             
             <button
-              onClick={handleClaimAll}
-              disabled={isLoading || claimingIndex !== null}
-              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-gray-900 font-bold rounded-xl transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/20"
+              onClick={handleClaim}
+              disabled={isLoading || claiming}
+              className="w-full py-4 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-gray-900 font-bold text-lg rounded-xl transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/20 hover:scale-[1.02]"
             >
-              {isLoading || claimingIndex !== null ? (
+              {isLoading || claiming ? (
                 <span className="flex items-center justify-center gap-2">
                   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -561,32 +226,24 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
                   Claiming...
                 </span>
               ) : (
-                `Claim All (${claimableRewards.filter(r => !r.claimed).length} rewards)`
+                `Claim ${winnerReward.toFixed(4)} SOL`
               )}
             </button>
             
             <p className="text-center text-white/30 text-xs mt-3">
-              Each claim is a separate transaction
+              This will transfer SOL directly to your wallet
             </p>
-            {hasMissingPrices && (
-              <p className="text-center text-amber-400/70 text-xs mt-2">
-                ⚠ Some prices use entry values (no live data available)
-              </p>
-            )}
           </div>
         )}
 
-        {allClaimed && (
+        {claimed && (
           <div className="p-6 border-t border-white/10">
-            <div className="text-center py-4">
-              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-green-500/20 flex items-center justify-center">
-                <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-green-400 font-bold">All Rewards Claimed!</p>
-              <p className="text-white/50 text-sm mt-1">Check your wallet for the tokens</p>
-            </div>
+            <button
+              onClick={onClose}
+              className="w-full py-3 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl transition-all cursor-pointer"
+            >
+              Close
+            </button>
           </div>
         )}
       </div>
@@ -607,4 +264,3 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
     </>
   );
 }
-
