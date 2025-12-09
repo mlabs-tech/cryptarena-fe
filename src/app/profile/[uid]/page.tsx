@@ -500,6 +500,35 @@ function ProfilePage() {
                               )
                             )}
                             
+                            {/* Claim Refund Button for Canceled Arenas - Only for participants on own profile */}
+                            {isCanceled && connected && publicKey && 
+                              profile?.wallets.some(w => w.address === publicKey.toBase58()) && (
+                              arena.userEntry?.hasClaimed ? (
+                                <div className="flex items-center gap-2 px-4 py-2 bg-zinc-500/20 rounded-xl border border-zinc-500/40">
+                                  <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  <span className="text-zinc-400 font-bold text-xs">Refund Claimed</span>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedArenaForClaim(arena);
+                                    setClaimSidebarOpen(true);
+                                  }}
+                                  className="group relative px-6 py-3 bg-zinc-500 hover:bg-zinc-400 text-white text-base font-black rounded-xl transition-all cursor-pointer shadow-lg shadow-zinc-500/30 hover:scale-105 overflow-hidden"
+                                >
+                                  {/* Animated border gradient */}
+                                  <span className="absolute inset-0 rounded-xl">
+                                    <span className="absolute inset-[-3px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#a1a1aa,#ffffff,#d4d4d8,#ffffff,#a1a1aa,#ffffff)] animate-[spin_4s_linear_infinite]" />
+                                    <span className="absolute inset-[2px] rounded-lg bg-zinc-500 group-hover:bg-zinc-400 transition-colors" />
+                                  </span>
+                                  <span className="relative z-10">Claim Refund</span>
+                                </button>
+                              )
+                            )}
+                            
                             {/* Arrow */}
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                               <svg className="w-5 h-5 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -752,7 +781,7 @@ function ProfilePage() {
         )}
       </div>
 
-      {/* Claim Rewards Sidebar */}
+      {/* Claim Rewards/Refund Sidebar */}
       {selectedArenaForClaim && (
         <ClaimRewardsSidebar
           isOpen={claimSidebarOpen}
@@ -766,10 +795,25 @@ function ProfilePage() {
             winningAssetSymbol: selectedArenaForClaim.winningAssetSymbol,
             totalPoolSol: selectedArenaForClaim.totalPoolSol,
             totalPoolUsd: selectedArenaForClaim.totalPoolUsd,
+            status: selectedArenaForClaim.status,
+            playerCount: selectedArenaForClaim.playerCount,
           }}
+          isRefund={selectedArenaForClaim.status === ArenaStatus.Canceled}
           onClaimSuccess={() => {
-            // Refresh match history after successful claim
-            fetchMatchHistory();
+            // Optimistic UI update - immediately mark as claimed in local state
+            // This avoids waiting for indexer to catch up with the blockchain
+            setMatchHistory(prev => prev.map(arena => {
+              if (arena.arenaId === selectedArenaForClaim.arenaId && arena.userEntry) {
+                return {
+                  ...arena,
+                  userEntry: {
+                    ...arena.userEntry,
+                    hasClaimed: true,
+                  },
+                };
+              }
+              return arena;
+            }));
           }}
         />
       )}

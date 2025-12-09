@@ -49,6 +49,7 @@ export const TOKEN_INDEX: Record<string, number> = {
 // Instruction discriminators from IDL
 const ENTER_ARENA_DISCRIMINATOR = Buffer.from([237, 44, 241, 163, 152, 39, 13, 181]);
 const CLAIM_WINNER_REWARDS_DISCRIMINATOR = Buffer.from([219, 234, 112, 241, 132, 16, 126, 206]);
+const CLAIM_REFUND_DISCRIMINATOR = Buffer.from([15, 16, 30, 161, 255, 228, 97, 60]);
 
 interface GlobalState {
   admin: PublicKey;
@@ -336,9 +337,87 @@ export function useCryptarena() {
     }
   }, [publicKey, signTransaction, connected, connection, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA]);
 
+  // Claim refund for canceled arena (tie scenario)
+  const claimRefund = useCallback(async (params: { arenaId: number }): Promise<EnterArenaResult> => {
+    if (!publicKey || !signTransaction || !connected) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { arenaId } = params;
+      
+      // Derive all PDAs
+      const arenaIdBN = new BN(arenaId);
+      const [arenaPDA] = getArenaPDA(arenaIdBN);
+      const [arenaVaultPDA] = getArenaVaultPDA(arenaIdBN);
+      const [playerEntryPDA] = getPlayerEntryPDA(arenaPDA, publicKey);
+
+      // Build instruction data: just discriminator (no arguments)
+      const instructionData = CLAIM_REFUND_DISCRIMINATOR;
+
+      // Build the instruction - accounts match ClaimRefund struct in Rust
+      // 1. arena (read-only)
+      // 2. arena_vault (mut)
+      // 3. player_entry (mut)
+      // 4. player (signer, mut)
+      // 5. system_program
+      const instruction = new TransactionInstruction({
+        programId: PROGRAM_ID,
+        keys: [
+          { pubkey: arenaPDA, isSigner: false, isWritable: false },
+          { pubkey: arenaVaultPDA, isSigner: false, isWritable: true },
+          { pubkey: playerEntryPDA, isSigner: false, isWritable: true },
+          { pubkey: publicKey, isSigner: true, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: instructionData,
+      });
+
+      // Create transaction
+      const transaction = new Transaction();
+      transaction.add(instruction);
+
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Sign transaction
+      const signedTx = await signTransaction(transaction);
+
+      // Send transaction
+      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+
+      // Confirm transaction
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      }, 'confirmed');
+
+      console.log('Claim refund transaction confirmed:', signature);
+
+      return { success: true, signature };
+    } catch (err) {
+      console.error('Claim refund failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Transaction failed';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [publicKey, signTransaction, connected, connection, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA]);
+
   return {
     enterArena,
     claimWinnerRewards,
+    claimRefund,
     fetchGlobalState,
     getEntryFee,
     getTokenSymbol,
