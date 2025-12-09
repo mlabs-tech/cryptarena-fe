@@ -109,7 +109,10 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
   };
 
   // Calculate amounts
-  const winnerReward = (arena.totalPoolSol || 0) * 0.9;
+  // Single-player arenas: winner gets 100%, multi-player: 90%
+  const isSinglePlayer = arena.playerCount === 1;
+  const winnerShare = isSinglePlayer ? 1.0 : 0.9;
+  const winnerReward = (arena.totalPoolSol || 0) * winnerShare;
   // Refund amount is the entry fee (total pool / player count)
   const refundAmount = arena.playerCount && arena.playerCount > 0 
     ? (arena.totalPoolSol || 0) / arena.playerCount 
@@ -228,7 +231,9 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
 
               {/* Reward Amount */}
               <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
-                <p className="text-white/40 text-xs uppercase tracking-wider mb-3">Your Reward (90% of Pool)</p>
+                <p className="text-white/40 text-xs uppercase tracking-wider mb-3">
+                  Your Reward ({isSinglePlayer ? '100%' : '90%'} of Pool)
+                </p>
                 
                 <div className="flex items-end justify-between mb-4">
                   <div>
@@ -238,7 +243,7 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
                     <p className="text-white/50 text-lg">SOL</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-white/40 text-sm">≈ ${((arena.totalPoolUsd || 0) * 0.9).toFixed(2)} USD</p>
+                    <p className="text-white/40 text-sm">≈ ${((arena.totalPoolUsd || 0) * winnerShare).toFixed(2)} USD</p>
                   </div>
                 </div>
 
@@ -249,13 +254,15 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
                     <span className="text-white">{(arena.totalPoolSol || 0).toFixed(4)} SOL</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-white/40">Winner Share (90%)</span>
+                    <span className="text-white/40">Winner Share ({isSinglePlayer ? '100%' : '90%'})</span>
                     <span className="text-amber-400">{winnerReward.toFixed(4)} SOL</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-white/40">Treasury (10%)</span>
-                    <span className="text-white/60">{((arena.totalPoolSol || 0) * 0.1).toFixed(4)} SOL</span>
-                  </div>
+                  {!isSinglePlayer && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-white/40">Treasury (10%)</span>
+                      <span className="text-white/60">{((arena.totalPoolSol || 0) * 0.1).toFixed(4)} SOL</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -268,8 +275,10 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
                   <div>
                     <p className="text-sky-400 text-sm font-medium mb-1">How it works</p>
                     <p className="text-white/50 text-xs">
-                      As the winner, you receive 90% of the total SOL pool. The remaining 10% goes to the treasury. 
-                      Click the button below to claim your reward.
+                      {isSinglePlayer 
+                        ? "Since you were the only player in this arena, you receive 100% of the total SOL pool. Click the button below to claim your reward."
+                        : "As the winner, you receive 90% of the total SOL pool. The remaining 10% goes to the treasury. Click the button below to claim your reward."
+                      }
                     </p>
                   </div>
                 </div>

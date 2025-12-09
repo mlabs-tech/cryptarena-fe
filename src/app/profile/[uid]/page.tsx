@@ -20,7 +20,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:808
 const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL || 'http://localhost:3001';
 
 // Mastery ranks
-type MasteryRank = 'wood' | 'bronze' | 'silver' | 'gold' | 'diamond' | 'master' | 'grandmaster';
+type MasteryRank = 'wood' | 'silver' | 'gold' | 'diamond' | 'master';
 
 // Mastery data interfaces
 interface ChampionMastery {
@@ -116,31 +116,27 @@ const ArenaStatus = {
 // Get mastery rank based on score (matches backend thresholds)
 // 0: Wood, 500: Bronze, 1500: Silver, 3500: Gold, 7000: Diamond, 15000: Master, 30000: Grandmaster
 const getMasteryRank = (score: number): MasteryRank => {
-  if (score >= 30000) return 'grandmaster';
-  if (score >= 15000) return 'master';
-  if (score >= 7000) return 'diamond';
-  if (score >= 3500) return 'gold';
-  if (score >= 1500) return 'silver';
-  if (score >= 500) return 'bronze';
+  if (score >= 9000) return 'master';
+  if (score >= 3000) return 'diamond';
+  if (score >= 1500) return 'gold';
+  if (score >= 500) return 'silver';
   return 'wood';
 };
 
 // Get rank from backend rank name
 const getRankFromName = (name: string): MasteryRank => {
   const normalizedName = name.toLowerCase() as MasteryRank;
-  const validRanks: MasteryRank[] = ['wood', 'bronze', 'silver', 'gold', 'diamond', 'master', 'grandmaster'];
+  const validRanks: MasteryRank[] = ['wood', 'silver', 'gold', 'diamond', 'master'];
   return validRanks.includes(normalizedName) ? normalizedName : 'wood';
 };
 
 // Banner images for mastery ranks (CDN URLs)
 const BANNER_IMAGES: Record<MasteryRank, string> = {
   wood: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/a9fe4825-d829-42a0-7866-a202d28ae300/public',
-  bronze: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/a9fe4825-d829-42a0-7866-a202d28ae300/public',
   silver: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/9ff8db49-69ef-43b8-47e2-fcfd7ffb9b00/public',
   gold: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/6ee8e146-3ff7-4217-93e5-1a605d739000/public',
   diamond: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/4408eafb-ea4c-43e3-97de-0693ca320100/public',
   master: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1a87a0cc-a7b3-48ee-92eb-e8fd77a6d800/public',
-  grandmaster: 'https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/1a87a0cc-a7b3-48ee-92eb-e8fd77a6d800/public',
 };
 
 // Get banner image URL for mastery rank
@@ -281,10 +277,8 @@ function ProfilePage() {
 
   if (!user) return null;
 
-  // Use real mastery data or fall back to score-based calculation
-  const masteryRank = mastery?.rankName 
-    ? getRankFromName(mastery.rankName) 
-    : getMasteryRank(masteryStats.masteryScore);
+  // Use real mastery data or fall back to score-based calculation 
+  const masteryRank = getMasteryRank(masteryStats.masteryScore)
   const bannerImage = getBannerImage(masteryRank);
 
   // Get status badge style
