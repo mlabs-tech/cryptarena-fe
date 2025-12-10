@@ -245,6 +245,12 @@ class ApiClient {
     return this.fetch<GenerateMessageResponse>(`/api/wallets/message/${address}`);
   }
 
+  async syncWallets(): Promise<{ success: boolean; synced: boolean; message: string }> {
+    return this.fetch<{ success: boolean; synced: boolean; message: string }>('/api/wallets/sync', {
+      method: 'POST',
+    });
+  }
+
   async linkWallet(request: LinkWalletRequest): Promise<Wallet> {
     return this.fetch<Wallet>('/api/wallets/link', {
       method: 'POST',

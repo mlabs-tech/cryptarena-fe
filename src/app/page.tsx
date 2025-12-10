@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet, useWalletContext } from '@/context/WalletContext';
+import { usePrivyAuth } from '@/context/PrivyContext';
 import { api } from '@/lib/api';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import WalletConnectModal from '@/components/WalletConnectModal';
@@ -37,14 +38,19 @@ interface QuestProgress {
 
 function HomePage() {
   const router = useRouter();
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, authMethod } = useAuth();
   const { publicKey, connected } = useWallet();
   const { currentLinkedWallet, checkAndLinkWallet, isLinking } = useWalletContext();
+  const { getSolanaWalletAddress, isPrivyAuthenticated } = usePrivyAuth();
   
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [isReadyingUp, setIsReadyingUp] = useState(false);
   const [quests, setQuests] = useState<QuestProgress[]>([]);
   const [isLoadingQuests, setIsLoadingQuests] = useState(false);
+  
+  // Check if user is using Privy wallet
+  const isUsingPrivy = authMethod === 'privy' && isPrivyAuthenticated;
+  const privyWalletAddress = getSolanaWalletAddress();
 
   // Fetch quests from backend
   const fetchQuests = useCallback(async () => {
@@ -87,7 +93,15 @@ function HomePage() {
   const handleReadyUp = async () => {
     setIsReadyingUp(true);
     
-    // Check if wallet is connected
+    // If user is using Privy, they already have an embedded wallet - proceed directly
+    if (isUsingPrivy && privyWalletAddress) {
+      console.log('Privy user with wallet, proceeding to queue...');
+      router.push('/queue');
+      setIsReadyingUp(false);
+      return;
+    }
+    
+    // For non-Privy users, check if external wallet is connected
     if (!connected || !publicKey) {
       setShowWalletModal(true);
       setIsReadyingUp(false);

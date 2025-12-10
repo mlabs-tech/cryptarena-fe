@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
   PublicKey,
@@ -10,6 +10,9 @@ import {
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import BN from 'bn.js';
+import { useAuth } from '@/context/AuthContext';
+import { usePrivyAuth } from '@/context/PrivyContext';
+import { useSignTransaction, useWallets } from '@privy-io/react-auth/solana';
 
 // Program ID for cryptarena-sol (new SOL-based program)
 const PROGRAM_ID = new PublicKey('GX4gVWUtVgq6XxL8oHYy6psoN9KFdJhwnds2T3NHe5na');
@@ -77,10 +80,52 @@ const INDEX_TO_TOKEN: Record<number, string> = Object.fromEntries(
 );
 
 export function useCryptarena() {
-  const { publicKey, signTransaction, connected } = useWallet();
+  // External wallet adapter
+  const { publicKey: externalPublicKey, signTransaction: externalSignTransaction, connected: externalConnected } = useWallet();
   const { connection } = useConnection();
+  
+  // Auth context to determine which wallet to use
+  const { authMethod } = useAuth();
+  const { getSolanaWalletAddress, isPrivyAuthenticated } = usePrivyAuth();
+  
+  // Privy wallet hooks - use signTransaction (not signAndSendTransaction) to avoid funding check
+  const { signTransaction: privySignTransaction } = useSignTransaction();
+  const { wallets: privyWallets, ready: privyWalletsReady } = useWallets();
+  
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Determine if we should use Privy wallet
+  const usePrivyWallet = authMethod === 'privy' && isPrivyAuthenticated;
+  
+  // Get the Privy Solana wallet
+  const getPrivySolanaWallet = useCallback(() => {
+    const privyAddress = getSolanaWalletAddress();
+    if (!privyAddress || !privyWallets.length) return null;
+    
+    // Find the Solana wallet that matches our address
+    return privyWallets.find(w => w.address === privyAddress) || privyWallets[0];
+  }, [getSolanaWalletAddress, privyWallets]);
+  
+  // Get the active wallet address as a string (for stable dependency)
+  const activeWalletAddress = useMemo((): string | null => {
+    if (usePrivyWallet) {
+      return getSolanaWalletAddress();
+    }
+    return externalPublicKey?.toBase58() || null;
+  }, [usePrivyWallet, getSolanaWalletAddress, externalPublicKey]);
+  
+  // Memoize the PublicKey to prevent creating new objects on every render
+  const publicKey = useMemo((): PublicKey | null => {
+    if (!activeWalletAddress) return null;
+    try {
+      return new PublicKey(activeWalletAddress);
+    } catch {
+      return null;
+    }
+  }, [activeWalletAddress]);
+  
+  const connected = usePrivyWallet ? !!activeWalletAddress : externalConnected;
 
   // Derive Global State PDA
   const getGlobalStatePDA = useCallback((): [PublicKey, number] => {
@@ -162,7 +207,12 @@ export function useCryptarena() {
 
   // Enter arena with a token pick (pays SOL entry fee)
   const enterArena = useCallback(async (params: EnterArenaParams): Promise<EnterArenaResult> => {
-    if (!publicKey || !signTransaction || !connected) {
+    if (!publicKey || !connected) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+    
+    // For external wallets, we need signTransaction
+    if (!usePrivyWallet && !externalSignTransaction) {
       return { success: false, error: 'Wallet not connected' };
     }
 
@@ -226,21 +276,82 @@ export function useCryptarena() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Sign transaction
-      const signedTx = await signTransaction(transaction);
+      let signature: string;
 
-      // Send transaction
-      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-
-      // Confirm transaction
-      await connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      }, 'confirmed');
+      if (usePrivyWallet) {
+        // Use Privy to sign transaction (not signAndSend to avoid funding check)
+        console.log('Using Privy wallet to sign transaction...');
+        console.log('Privy wallets ready:', privyWalletsReady, 'count:', privyWallets.length);
+        console.log('Privy wallets:', privyWallets.map(w => ({ address: w.address })));
+        
+        // Wait for wallets to be ready
+        if (!privyWalletsReady) {
+          return { success: false, error: 'Privy wallets not ready yet. Please try again.' };
+        }
+        
+        // Get the Solana wallet - use first wallet if getPrivySolanaWallet doesn't find a match
+        let privyWallet = getPrivySolanaWallet();
+        if (!privyWallet && privyWallets.length > 0) {
+          // Fallback to first available wallet
+          privyWallet = privyWallets[0];
+          console.log('Using first available wallet:', privyWallet.address);
+        }
+        
+        if (!privyWallet) {
+          console.error('No Privy wallet found. Ready:', privyWalletsReady, 'Wallets:', privyWallets);
+          return { success: false, error: 'Privy wallet not found. Please reconnect.' };
+        }
+        
+        console.log('Found privy wallet:', privyWallet.address);
+        
+        // Serialize the transaction to Uint8Array for Privy
+        const serializedTransaction = new Uint8Array(transaction.serialize({ requireAllSignatures: false }));
+        
+        // Sign the transaction with Privy
+        // Skip the wallet UI to avoid mainnet simulation - we handle sending ourselves
+        const signResult = await privySignTransaction({
+          transaction: serializedTransaction,
+          wallet: privyWallet,
+          options: {
+            uiOptions: {
+              showWalletUIs: false, // Skip Privy's transaction preview UI
+            },
+          },
+        });
+        
+        console.log('Privy signed transaction, sending...');
+        
+        // Send the signed transaction ourselves
+        signature = await connection.sendRawTransaction(signResult.signedTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        console.log('Transaction sent, signature:', signature);
+        
+        // Wait for confirmation
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+      } else {
+        // Use external wallet adapter to sign and send
+        console.log('Using external wallet to sign and send transaction...');
+        const signedTx = await externalSignTransaction!(transaction);
+        
+        signature = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        // Confirm transaction
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+      }
 
       console.log('Enter arena transaction confirmed:', signature);
 
@@ -253,7 +364,7 @@ export function useCryptarena() {
     } finally {
       setIsLoading(false);
     }
-  }, [publicKey, signTransaction, connected, connection, fetchGlobalState, getGlobalStatePDA, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA, getWhitelistedTokenPDA]);
+  }, [publicKey, connected, usePrivyWallet, externalSignTransaction, privySignTransaction, getPrivySolanaWallet, connection, fetchGlobalState, getGlobalStatePDA, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA, getWhitelistedTokenPDA]);
 
   // Get token symbol from index
   const getTokenSymbol = useCallback((index: number): string => {
@@ -262,7 +373,11 @@ export function useCryptarena() {
 
   // Claim winner rewards (90% of pool in SOL)
   const claimWinnerRewards = useCallback(async (params: { arenaId: number }): Promise<EnterArenaResult> => {
-    if (!publicKey || !signTransaction || !connected) {
+    if (!publicKey || !connected) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+    
+    if (!usePrivyWallet && !externalSignTransaction) {
       return { success: false, error: 'Wallet not connected' };
     }
 
@@ -308,21 +423,57 @@ export function useCryptarena() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Sign transaction
-      const signedTx = await signTransaction(transaction);
+      let signature: string;
 
-      // Send transaction
-      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-
-      // Confirm transaction
-      await connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      }, 'confirmed');
+      if (usePrivyWallet) {
+        // Use Privy to sign transaction
+        console.log('Using Privy wallet to claim rewards...');
+        
+        const privyWallet = getPrivySolanaWallet() || (privyWallets.length > 0 ? privyWallets[0] : null);
+        if (!privyWallet) {
+          return { success: false, error: 'Privy wallet not found' };
+        }
+        
+        const serializedTransaction = new Uint8Array(transaction.serialize({ requireAllSignatures: false }));
+        
+        // Sign with Privy - skip wallet UI to avoid mainnet simulation
+        const signResult = await privySignTransaction({
+          transaction: serializedTransaction,
+          wallet: privyWallet,
+          options: {
+            uiOptions: {
+              showWalletUIs: false,
+            },
+          },
+        });
+        
+        // Send the signed transaction ourselves to devnet
+        signature = await connection.sendRawTransaction(signResult.signedTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+      } else {
+        // Use external wallet adapter to sign and send
+        console.log('Using external wallet to claim rewards...');
+        const signedTx = await externalSignTransaction!(transaction);
+        
+        signature = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+      }
 
       console.log('Claim winner rewards transaction confirmed:', signature);
 
@@ -335,11 +486,15 @@ export function useCryptarena() {
     } finally {
       setIsLoading(false);
     }
-  }, [publicKey, signTransaction, connected, connection, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA]);
+  }, [publicKey, connected, usePrivyWallet, externalSignTransaction, privySignTransaction, getPrivySolanaWallet, connection, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA]);
 
   // Claim refund for canceled arena (tie scenario)
   const claimRefund = useCallback(async (params: { arenaId: number }): Promise<EnterArenaResult> => {
-    if (!publicKey || !signTransaction || !connected) {
+    if (!publicKey || !connected) {
+      return { success: false, error: 'Wallet not connected' };
+    }
+    
+    if (!usePrivyWallet && !externalSignTransaction) {
       return { success: false, error: 'Wallet not connected' };
     }
 
@@ -385,21 +540,57 @@ export function useCryptarena() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Sign transaction
-      const signedTx = await signTransaction(transaction);
+      let signature: string;
 
-      // Send transaction
-      const signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-
-      // Confirm transaction
-      await connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      }, 'confirmed');
+      if (usePrivyWallet) {
+        // Use Privy to sign transaction
+        console.log('Using Privy wallet to claim refund...');
+        
+        const privyWallet = getPrivySolanaWallet() || (privyWallets.length > 0 ? privyWallets[0] : null);
+        if (!privyWallet) {
+          return { success: false, error: 'Privy wallet not found' };
+        }
+        
+        const serializedTransaction = new Uint8Array(transaction.serialize({ requireAllSignatures: false }));
+        
+        // Sign with Privy - skip wallet UI to avoid mainnet simulation
+        const signResult = await privySignTransaction({
+          transaction: serializedTransaction,
+          wallet: privyWallet,
+          options: {
+            uiOptions: {
+              showWalletUIs: false,
+            },
+          },
+        });
+        
+        // Send the signed transaction ourselves to devnet
+        signature = await connection.sendRawTransaction(signResult.signedTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+      } else {
+        // Use external wallet adapter to sign and send
+        console.log('Using external wallet to claim refund...');
+        const signedTx = await externalSignTransaction!(transaction);
+        
+        signature = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+        
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+      }
 
       console.log('Claim refund transaction confirmed:', signature);
 
@@ -412,7 +603,7 @@ export function useCryptarena() {
     } finally {
       setIsLoading(false);
     }
-  }, [publicKey, signTransaction, connected, connection, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA]);
+  }, [publicKey, connected, usePrivyWallet, externalSignTransaction, privySignTransaction, getPrivySolanaWallet, connection, getArenaPDA, getArenaVaultPDA, getPlayerEntryPDA]);
 
   return {
     enterArena,
@@ -425,5 +616,9 @@ export function useCryptarena() {
     error,
     programId: PROGRAM_ID,
     TOKEN_INDEX,
+    // Wallet info
+    publicKey,
+    connected,
+    usePrivyWallet,
   };
 }

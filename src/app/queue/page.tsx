@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { useWallet, useWalletContext, useConnection } from '@/context/WalletContext';
+import { useConnection } from '@/context/WalletContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
 import { indexerApi, CurrentArenaResponse, PlayerCheckResponse } from '@/lib/indexer-api';
@@ -11,6 +11,46 @@ import { useCryptarena } from '@/hooks/useCryptarena';
 import Image from 'next/image';
 import localFont from 'next/font/local';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+
+// Modal animation styles
+const modalAnimationStyles = `
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes modalSlideIn {
+    from {
+      opacity: 0;
+      transform: scale(0.9) translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  
+  @keyframes contentFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes borderSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+`;
 
 // Format countdown time (mm:ss)
 function formatCountdown(ms: number): { minutes: string; seconds: string } {
@@ -190,9 +230,17 @@ const TOKENS = [
 function QueueMatchPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
-  const { enterArena, getEntryFee, isLoading: isEntering } = useCryptarena();
+  
+  // Use useCryptarena which handles both Privy and external wallets
+  const { 
+    enterArena, 
+    getEntryFee, 
+    isLoading: isEntering,
+    publicKey,
+    connected,
+    usePrivyWallet,
+  } = useCryptarena();
   
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<string>(
@@ -208,6 +256,10 @@ function QueueMatchPage() {
   const [txStatus, setTxStatus] = useState<'idle' | 'signing' | 'confirming' | 'success' | 'error'>('idle');
   const [txError, setTxError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
+  
+  // Confirmation modal state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isConfirmingInWallet, setIsConfirmingInWallet] = useState(false);
 
   // Arena state from indexer
   const [arenaData, setArenaData] = useState<CurrentArenaResponse | null>(null);
@@ -367,9 +419,23 @@ function QueueMatchPage() {
     }
   };
 
-  // Handle LOCK IN button click
-  const handleLockIn = async () => {
+  // Open confirmation modal
+  const handleLockInClick = () => {
     if (!selectedToken) return;
+    setShowConfirmModal(true);
+  };
+
+  // Handle confirmed LOCK IN
+  const handleConfirmLockIn = async () => {
+    if (!selectedToken) return;
+    
+    // For Privy, close modal immediately since signing is silent
+    // For external wallets, keep modal open and show "Confirming in wallet"
+    if (usePrivyWallet) {
+      setShowConfirmModal(false);
+    } else {
+      setIsConfirmingInWallet(true);
+    }
     
     setTxStatus('signing');
     setTxError(null);
@@ -379,6 +445,10 @@ function QueueMatchPage() {
       const result = await enterArena({
         tokenSymbol: selectedToken,
       });
+      
+      // Close modal after transaction is sent (for external wallets)
+      setShowConfirmModal(false);
+      setIsConfirmingInWallet(false);
       
       if (result.success && result.signature) {
         setTxStatus('success');
@@ -394,10 +464,18 @@ function QueueMatchPage() {
         setTxError(result.error || 'Transaction failed');
       }
     } catch (err) {
+      setShowConfirmModal(false);
+      setIsConfirmingInWallet(false);
       setTxStatus('error');
       setTxError(err instanceof Error ? err.message : 'Transaction failed');
     }
   };
+
+  // Get selected token data
+  const selectedTokenData = useMemo(() => {
+    if (!selectedToken) return null;
+    return TOKENS.find(t => t.symbol === selectedToken);
+  }, [selectedToken]);
 
   // Check if user has sufficient SOL balance for entry fee + tx fee
   const hasInsufficientBalance = () => {
@@ -1057,7 +1135,7 @@ function QueueMatchPage() {
                     </div>
                     <button 
                       className="w-full bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-xl py-4 rounded-2xl transition-all cursor-pointer border-2 border-amber-500/50"
-                      onClick={handleLockIn}
+                      onClick={handleLockInClick}
                     >
                       TRY AGAIN
                     </button>
@@ -1090,16 +1168,25 @@ function QueueMatchPage() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    {txStatus === 'signing' ? 'APPROVE IN WALLET...' : 'CONFIRMING...'}
+                    {txStatus === 'signing' 
+                      ? (usePrivyWallet ? 'SENDING...' : 'APPROVE IN WALLET...') 
+                      : 'CONFIRMING...'}
                   </button>
                 ) : (
                   <div className="flex flex-col items-end gap-2">
                     <button 
-                      className="bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-2xl px-12 py-5 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer border-2 border-amber-500/50 shadow-lg shadow-amber-500/30"
+                      className="group relative bg-amber-400 hover:bg-amber-300 text-gray-900 font-black text-2xl px-12 py-5 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-lg shadow-amber-500/30 overflow-hidden"
                       style={{ fontFamily: 'var(--font-ace-of-swords)' }}
-                      onClick={handleLockIn}
+                      onClick={handleLockInClick}
                     >
-                      LOCK IN
+                      {/* Animated spinning border - visible on hover */}
+                      <span className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <span className="absolute inset-[-4px] rounded-2xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)] animate-[spin_4s_linear_infinite]" />
+                        <span className="absolute inset-[3px] rounded-xl bg-amber-400 group-hover:bg-amber-300 transition-colors" />
+                      </span>
+                      {/* Static border when not hovering */}
+                      <span className="absolute inset-0 rounded-2xl border-2 border-amber-500/50 group-hover:opacity-0 transition-opacity duration-300" />
+                      <span className="relative z-10">LOCK IN</span>
                     </button>
                     <p className="text-white/60 text-xs">
                       Entry: {entryFee} SOL • Champion: <span className="text-amber-400 font-bold">{selectedToken}</span>
@@ -1111,6 +1198,144 @@ function QueueMatchPage() {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && selectedTokenData && (
+        <>
+          {/* Inject animation styles */}
+          <style dangerouslySetInnerHTML={{ __html: modalAnimationStyles }} />
+          
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop with fade animation */}
+            <div 
+              className="absolute inset-0 bg-black/70 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]"
+              onClick={() => setShowConfirmModal(false)}
+            />
+            
+            {/* Modal with scale + slide animation */}
+            <div className="relative w-full max-w-md animate-[modalSlideIn_0.4s_cubic-bezier(0.34,1.56,0.64,1)]">
+              {/* Glow effect */}
+              <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/30 via-yellow-500/40 to-amber-500/30 rounded-3xl blur-2xl animate-pulse" />
+              
+              {/* Liquid glass container */}
+              <div className="relative bg-[#1a1f2e]/95 backdrop-blur-2xl rounded-3xl border border-white/20 overflow-hidden shadow-2xl shadow-amber-500/20">
+                {/* Top gradient accent with shimmer */}
+                <div className="h-1.5 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/60 to-transparent animate-[shimmer_2s_ease-in-out_infinite]" />
+                </div>
+                
+                {/* Header */}
+                <div className="p-6 border-b border-white/10 text-center animate-[contentFadeIn_0.5s_ease-out_0.1s_both]">
+                  <h3 className="text-2xl font-black text-white" style={{ fontFamily: 'var(--font-ace-of-swords)' }}>
+                    CONFIRM LOCK IN
+                  </h3>
+                  <p className="text-white/50 text-sm mt-1">
+                    You&apos;re about to enter the arena
+                  </p>
+                </div>
+                
+                {/* Content */}
+                <div className="p-6">
+                  {/* Champion Card */}
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-6 animate-[contentFadeIn_0.5s_ease-out_0.15s_both]">
+                    <div className="flex items-center gap-4">
+                      {/* Champion Image with bounce */}
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden border-2 border-amber-500/50 shadow-lg shadow-amber-500/20 animate-[contentFadeIn_0.6s_cubic-bezier(0.34,1.56,0.64,1)_0.2s_both]">
+                        <Image
+                          src={selectedTokenData.image}
+                          alt={selectedTokenData.name}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                      
+                      {/* Champion Info */}
+                      <div className="flex-1">
+                        <p className="text-amber-400 font-bold text-lg">{selectedTokenData.symbol}</p>
+                        <p className="text-white/60 text-sm">{selectedTokenData.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/50">
+                            Champion #{selectedTokenData.index + 1}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Entry Fee Details with staggered animation */}
+                  <div className="space-y-3 mb-6">
+                    <div className="flex items-center justify-between py-3 px-4 bg-white/5 rounded-xl border border-white/10 animate-[contentFadeIn_0.5s_ease-out_0.2s_both]">
+                      <span className="text-white/60 text-sm">Entry Fee</span>
+                      <span className="text-white font-bold">{entryFee} SOL</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3 px-4 bg-white/5 rounded-xl border border-white/10 animate-[contentFadeIn_0.5s_ease-out_0.25s_both]">
+                      <span className="text-white/60 text-sm">Your Balance</span>
+                      <span className="text-white font-bold">{solBalance.toFixed(4)} SOL</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3 px-4 bg-amber-500/10 rounded-xl border border-amber-500/30 animate-[contentFadeIn_0.5s_ease-out_0.3s_both]">
+                      <span className="text-amber-400/80 text-sm">After Entry</span>
+                      <span className="text-amber-400 font-bold">{(solBalance - entryFee).toFixed(4)} SOL</span>
+                    </div>
+                  </div>
+                  
+                  {/* Warning */}
+                  <div className="flex items-start gap-3 p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 mb-6 animate-[contentFadeIn_0.5s_ease-out_0.35s_both]">
+                    <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <p className="text-amber-400 text-sm font-medium">Once locked in, you cannot change your champion</p>
+                      <p className="text-amber-400/60 text-xs mt-1">Make sure you&apos;ve selected the right one!</p>
+                    </div>
+                  </div>
+                  
+                  {/* Action Buttons */}
+                  <div className="flex gap-3 animate-[contentFadeIn_0.5s_ease-out_0.4s_both]">
+                    {!isConfirmingInWallet && (
+                      <button
+                        onClick={() => setShowConfirmModal(false)}
+                        className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all duration-200 cursor-pointer border border-white/10 hover:border-white/20"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      onClick={handleConfirmLockIn}
+                      disabled={isConfirmingInWallet}
+                      className={`group relative py-3 text-gray-900 font-black rounded-xl transition-all duration-200 shadow-lg overflow-hidden ${
+                        isConfirmingInWallet 
+                          ? 'w-full bg-amber-400/70 cursor-wait shadow-amber-500/20' 
+                          : 'flex-1 bg-amber-400 hover:bg-amber-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-amber-500/30 hover:shadow-amber-500/50'
+                      }`}
+                      style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                    >
+                      {/* Animated spinning border - always visible when not loading */}
+                      {!isConfirmingInWallet && (
+                        <span className="absolute inset-0 rounded-xl">
+                          <span 
+                            className="absolute inset-[-4px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)]"
+                            style={{ animation: 'borderSpin 3s linear infinite' }}
+                          />
+                          <span className="absolute inset-[3px] rounded-lg bg-amber-400 group-hover:bg-amber-300 transition-colors" />
+                        </span>
+                      )}
+                      <span className="relative z-10 flex items-center justify-center gap-2">
+                        {isConfirmingInWallet && (
+                          <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                        )}
+                        {isConfirmingInWallet ? 'CONFIRM IN WALLET...' : 'LOCK IN'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

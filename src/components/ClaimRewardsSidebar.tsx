@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useCryptarena } from '@/hooks/useCryptarena';
-import { useWallet } from '@solana/wallet-adapter-react';
 
 interface ArenaData {
   arenaId: string;
@@ -30,8 +29,8 @@ const ArenaStatus = {
 };
 
 export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuccess, isRefund = false }: ClaimRewardsSidebarProps) {
-  const { publicKey } = useWallet();
-  const { claimWinnerRewards, claimRefund, isLoading } = useCryptarena();
+  // Use useCryptarena which handles both Privy and external wallets
+  const { claimWinnerRewards, claimRefund, isLoading, publicKey, connected } = useCryptarena();
   
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
@@ -73,7 +72,7 @@ export default function ClaimRewardsSidebar({ isOpen, onClose, arena, onClaimSuc
 
   // Handle claiming SOL reward or refund
   const handleClaim = async () => {
-    if (!publicKey || claiming || claimed) return;
+    if (!publicKey || !connected || claiming || claimed) return;
 
     setClaiming(true);
     setError(null);

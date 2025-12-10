@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet, useWalletContext } from '@/context/WalletContext';
 import { usePrivyAuth } from '@/context/PrivyContext';
@@ -55,6 +55,8 @@ interface PublicWallet {
   address: string;
   walletType: string;
   isPrimary: boolean;
+  chainType?: string;
+  walletSource?: string;
 }
 
 interface PublicProfile {
@@ -154,16 +156,22 @@ type ProfileTab = 'history' | 'champions' | 'wallet';
 function ProfilePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const uid = params.uid as string;
   const { user, authMethod } = useAuth();
   const { publicKey, connected, sendTransaction } = useWallet();
   const { currentLinkedWallet } = useWalletContext();
   const { getSolanaWalletAddress, isPrivyAuthenticated, copySolanaAddress, exportPrivateKey } = usePrivyAuth();
   
+  // Get initial tab from URL query param
+  const initialTab = searchParams.get('tab') as ProfileTab | null;
+  
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ProfileTab>('history');
+  const [activeTab, setActiveTab] = useState<ProfileTab>(
+    initialTab && ['history', 'champions', 'wallet'].includes(initialTab) ? initialTab : 'history'
+  );
   
   // Match history state
   const [matchHistory, setMatchHistory] = useState<MatchArena[]>([]);
@@ -194,6 +202,18 @@ function ProfilePage() {
   
   // Check if viewing own profile
   const isOwnProfile = user?.id === uid;
+  
+  // Determine if user is using Privy or external wallet
+  const isUsingPrivy = authMethod === 'privy' && isPrivyAuthenticated;
+  const privyWalletAddress = getSolanaWalletAddress();
+  
+  // Get the active wallet address (Privy or external)
+  const activeWalletAddress = isUsingPrivy ? privyWalletAddress : publicKey?.toBase58();
+  const isWalletConnected = isUsingPrivy ? !!privyWalletAddress : connected;
+  
+  // Check if the active wallet belongs to this profile
+  const canClaimRewards = isWalletConnected && activeWalletAddress && 
+    profile?.wallets.some(w => w.address.toLowerCase() === activeWalletAddress.toLowerCase());
   
   // Derived stats from mastery (with fallbacks)
   const masteryStats = {
@@ -267,8 +287,21 @@ function ProfilePage() {
       setIsLoadingHistory(true);
       setHistoryError(null);
       
-      // Get all wallet addresses
-      const walletAddresses = profile.wallets.map(w => w.address).join(',');
+      // Filter for SVM (Solana) wallets only - arena history is Solana-based
+      // Include wallets with chainType 'SVM', 'SOLANA', or no chainType (legacy wallets are Solana)
+      const svmWallets = profile.wallets.filter(w => 
+        !w.chainType || 
+        w.chainType.toUpperCase() === 'SVM' || 
+        w.chainType.toUpperCase() === 'SOLANA'
+      );
+      
+      if (svmWallets.length === 0) {
+        setMatchHistory([]);
+        return;
+      }
+      
+      // Get SVM wallet addresses
+      const walletAddresses = svmWallets.map(w => w.address).join(',');
       
       const response = await fetch(`${INDEXER_URL}/api/v1/arenas/player/${walletAddresses}?limit=50`);
       
@@ -546,8 +579,7 @@ function ProfilePage() {
                             </div>
                             
                             {/* Claim Button or Claimed Badge - Only for winners on own profile */}
-                            {userWon && isEnded && connected && publicKey && 
-                              profile?.wallets.some(w => w.address === publicKey.toBase58()) && (
+                            {userWon && isEnded && canClaimRewards && (
                               arena.userEntry?.hasClaimed ? (
                                 <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 rounded-xl border border-green-500/40">
                                   <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -575,8 +607,7 @@ function ProfilePage() {
                             )}
                             
                             {/* Claim Refund Button for Canceled Arenas - Only for participants on own profile */}
-                            {isCanceled && connected && publicKey && 
-                              profile?.wallets.some(w => w.address === publicKey.toBase58()) && (
+                            {isCanceled && canClaimRewards && (
                               arena.userEntry?.hasClaimed ? (
                                 <div className="flex items-center gap-2 px-4 py-2 bg-zinc-500/20 rounded-xl border border-zinc-500/40">
                                   <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

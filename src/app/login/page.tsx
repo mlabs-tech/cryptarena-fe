@@ -40,6 +40,15 @@ export default function LoginPage() {
           const success = await authenticateWithBackend();
           
           if (success) {
+            // Sync wallets from Privy (in case embedded wallets weren't ready during initial auth)
+            try {
+              await api.syncWallets();
+              console.log('Wallet sync completed');
+            } catch (syncError) {
+              // Non-fatal - wallets will sync via scheduled job
+              console.warn('Initial wallet sync failed, will retry:', syncError);
+            }
+            
             // Get the user from backend
             const currentUser = await api.getCurrentUser();
             setUserFromPrivy(currentUser);

@@ -3,8 +3,13 @@
 import React, { createContext, useContext, useCallback, useState } from 'react';
 import { PrivyProvider, usePrivy, User as PrivyUser } from '@privy-io/react-auth';
 import { useExportWallet } from '@privy-io/react-auth/solana';
+import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { PRIVY_APP_ID, SOLANA_RPC_URL } from '@/lib/config';
 import { api } from '@/lib/api';
+
+// Create Solana RPC clients for Privy
+const DEVNET_RPC_URL = SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+const DEVNET_WS_URL = DEVNET_RPC_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
 interface PrivyAuthContextType {
   isPrivyReady: boolean;
@@ -209,6 +214,20 @@ export function PrivyAuthProvider({ children }: { children: React.ReactNode }) {
           },
           ethereum: {
             createOnLogin: 'all-users',
+          },
+        },
+        // Configure Solana RPC endpoints for embedded wallet UIs
+        // See: https://docs.privy.io/basics/react/advanced/configuring-solana-networks
+        solana: {
+          rpcs: {
+            'solana:mainnet': {
+              rpc: createSolanaRpc('https://api.mainnet-beta.solana.com'),
+              rpcSubscriptions: createSolanaRpcSubscriptions('wss://api.mainnet-beta.solana.com'),
+            },
+            'solana:devnet': {
+              rpc: createSolanaRpc(DEVNET_RPC_URL),
+              rpcSubscriptions: createSolanaRpcSubscriptions(DEVNET_WS_URL),
+            },
           },
         },
       }}
