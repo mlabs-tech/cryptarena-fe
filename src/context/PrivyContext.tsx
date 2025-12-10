@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useCallback, useState } from 'react';
 import { PrivyProvider, usePrivy, User as PrivyUser } from '@privy-io/react-auth';
+import { useExportWallet } from '@privy-io/react-auth/solana';
 import { PRIVY_APP_ID, SOLANA_RPC_URL } from '@/lib/config';
 import { api } from '@/lib/api';
 
@@ -15,12 +16,14 @@ interface PrivyAuthContextType {
   getSolanaWalletAddress: () => string | null;
   getEvmWalletAddress: () => string | null;
   copySolanaAddress: () => Promise<boolean>;
+  exportPrivateKey: () => Promise<void>;
 }
 
 const PrivyAuthContext = createContext<PrivyAuthContextType | undefined>(undefined);
 
 function PrivyAuthContextProvider({ children }: { children: React.ReactNode }) {
   const { ready, authenticated, user, login, logout, getAccessToken } = usePrivy();
+  const { exportWallet } = useExportWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   const getSolanaWalletAddress = useCallback((): string | null => {
@@ -120,6 +123,18 @@ function PrivyAuthContextProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, [getSolanaWalletAddress]);
 
+  // Export private key (opens Privy modal)
+  const exportPrivateKey = useCallback(async (): Promise<void> => {
+    const address = getSolanaWalletAddress();
+    if (address && exportWallet) {
+      try {
+        await exportWallet({ address });
+      } catch (err) {
+        console.error('Failed to export wallet:', err);
+      }
+    }
+  }, [getSolanaWalletAddress, exportWallet]);
+
   const value: PrivyAuthContextType = {
     isPrivyReady: ready,
     isPrivyAuthenticated: authenticated,
@@ -130,6 +145,7 @@ function PrivyAuthContextProvider({ children }: { children: React.ReactNode }) {
     getSolanaWalletAddress,
     getEvmWalletAddress,
     copySolanaAddress,
+    exportPrivateKey,
   };
 
   return (
@@ -154,6 +170,9 @@ const FallbackPrivyAuthContext: PrivyAuthContextType = {
   copySolanaAddress: async () => {
     console.warn('Privy is not configured.');
     return false;
+  },
+  exportPrivateKey: async () => {
+    console.warn('Privy is not configured.');
   },
 };
 
