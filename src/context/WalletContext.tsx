@@ -3,8 +3,8 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider, useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
-import { clusterApiUrl } from '@solana/web3.js';
 import { api, Wallet as LinkedWallet, WalletCheckResponse } from '@/lib/api';
+import { SOLANA_RPC_URL } from '@/lib/config';
 import { useAuth } from './AuthContext';
 
 interface WalletContextState {
@@ -159,14 +159,10 @@ function WalletContextProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// RPC endpoints - Helius primary, public devnet fallback
-const HELIUS_RPC = 'https://devnet.helius-rpc.com/?api-key=35d6175b-4d5e-4e99-924b-604c37cd2c9e';
-const PUBLIC_DEVNET_RPC = clusterApiUrl('devnet');
-
 // Main provider that wraps Solana wallet providers
 export function SolanaWalletProvider({ children }: { children: ReactNode }) {
-  // Use Helius RPC for faster performance (10 req/s), fallback to public devnet
-  const endpoint = useMemo(() => HELIUS_RPC, []);
+  // Use RPC URL from config (can be set via NEXT_PUBLIC_SOLANA_RPC_URL env var)
+  const endpoint = useMemo(() => SOLANA_RPC_URL, []);
   
   const wallets = useMemo(
     () => [

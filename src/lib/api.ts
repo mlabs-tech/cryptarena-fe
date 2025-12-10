@@ -25,9 +25,15 @@ export interface Wallet {
   id: string;
   address: string;
   walletType: string;
+  walletSource: string;
+  chainType: string;
   label: string | null;
   isPrimary: boolean;
   createdAt: string;
+}
+
+export interface PrivyAuthRequest {
+  accessToken: string;
 }
 
 export interface WalletCheckResponse {
@@ -198,6 +204,16 @@ class ApiClient {
     const response = await this.fetch<AuthResponse>('/api/auth/twitter/callback', {
       method: 'POST',
       body: JSON.stringify({ code, codeVerifier }),
+    });
+
+    this.setTokens(response.accessToken, response.refreshToken);
+    return response;
+  }
+
+  async privyCallback(request: PrivyAuthRequest): Promise<AuthResponse> {
+    const response = await this.fetch<AuthResponse>('/api/auth/privy/callback', {
+      method: 'POST',
+      body: JSON.stringify(request),
     });
 
     this.setTokens(response.accessToken, response.refreshToken);

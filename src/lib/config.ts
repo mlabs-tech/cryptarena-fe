@@ -11,3 +11,9 @@ export const TWITTER_SCOPES = ['tweet.read', 'users.read', 'offline.access'];
 // Twitter OAuth 2.0 Authorization URL
 export const TWITTER_AUTH_URL = 'https://twitter.com/i/oauth2/authorize';
 
+// Privy Configuration
+export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
+
+// Solana Configuration
+export const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+

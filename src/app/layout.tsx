@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Orbitron, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { PrivyAuthProvider } from "@/context/PrivyContext";
 import { SolanaWalletProvider } from "@/context/WalletContext";
 import { PythStreamProvider } from "@/context/PythStreamContext";
 import ScreenSizeGuard from "@/components/ScreenSizeGuard";
@@ -32,13 +33,15 @@ export default function RootLayout({
       <body
         className={`${orbitron.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <AuthProvider>
-          <SolanaWalletProvider>
-            <PythStreamProvider>
-              <ScreenSizeGuard>{children}</ScreenSizeGuard>
-            </PythStreamProvider>
-          </SolanaWalletProvider>
-        </AuthProvider>
+        <PrivyAuthProvider>
+          <AuthProvider>
+            <SolanaWalletProvider>
+              <PythStreamProvider>
+                <ScreenSizeGuard>{children}</ScreenSizeGuard>
+              </PythStreamProvider>
+            </SolanaWalletProvider>
+          </AuthProvider>
+        </PrivyAuthProvider>
       </body>
     </html>
   );
