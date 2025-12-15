@@ -893,12 +893,12 @@ function QueueMatchPage() {
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-400/30'
+                          ? 'fill-amber-400/40'
                           : isTaken
-                            ? 'fill-red-500/20'
+                            ? 'fill-red-500/30'
                             : selectedToken
-                              ? 'fill-white/20 group-hover:fill-white/25'
-                              : 'fill-white/5 group-hover:fill-white/10'
+                              ? 'fill-white/35 group-hover:fill-white/45'
+                              : 'fill-white/20 group-hover:fill-white/30'
                       }`}
                     />
                     {/* Border stroke */}
@@ -987,12 +987,12 @@ function QueueMatchPage() {
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-400/30'
+                          ? 'fill-amber-400/40'
                           : isTaken
-                            ? 'fill-red-500/20'
+                            ? 'fill-red-500/30'
                             : selectedToken
-                              ? 'fill-white/20 group-hover:fill-white/25'
-                              : 'fill-white/5 group-hover:fill-white/10'
+                              ? 'fill-white/35 group-hover:fill-white/45'
+                              : 'fill-white/20 group-hover:fill-white/30'
                       }`}
                     />
                     <polygon 
@@ -1076,12 +1076,12 @@ function QueueMatchPage() {
                       points="36,2 70,22 70,62 36,82 2,62 2,22" 
                       className={`transition-all ${
                         selectedToken === token.symbol
-                          ? 'fill-amber-400/30'
+                          ? 'fill-amber-400/40'
                           : isTaken
-                            ? 'fill-red-500/20'
+                            ? 'fill-red-500/30'
                             : selectedToken
-                              ? 'fill-white/20 group-hover:fill-white/25'
-                              : 'fill-white/5 group-hover:fill-white/10'
+                              ? 'fill-white/35 group-hover:fill-white/45'
+                              : 'fill-white/20 group-hover:fill-white/30'
                       }`}
                     />
                     <polygon 
