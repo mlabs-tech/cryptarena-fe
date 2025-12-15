@@ -167,7 +167,7 @@ export default function LoginPage() {
           <button
             onClick={handlePrivyLogin}
             disabled={isPrivyLoading}
-            className="relative cursor-pointer z-10 w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            className="relative cursor-pointer z-10 w-full bg-black hover:from-amber-600 hover:to-orange-600 text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {isPrivyLoading ? (
               <>
@@ -179,7 +179,7 @@ export default function LoginPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                   <path d="M17.6874 3.0625L12.6907 8.77425L8.37045 3.0625H2.11328L9.58961 12.8387L2.50378 20.9375H5.53795L11.0068 14.6886L15.7863 20.9375H21.8885L14.095 10.6342L20.7198 3.0625H17.6874ZM16.6232 19.1225L5.65436 4.78217H7.45745L18.3034 19.1225H16.6232Z"></path>
                 </svg>
-                <span>Quick Login with X</span>
+                <span>Sign in</span>
               </>
             )}
           </button>
@@ -190,14 +190,14 @@ export default function LoginPage() {
           </p>
 
           {/* Divider */}
-          <div className="z-10 w-full flex items-center gap-4">
+          {/* <div className="z-10 w-full flex items-center gap-4">
             <div className="flex-1 h-px bg-zinc-400/50"></div>
             <span className="text-zinc-500 text-sm">or</span>
             <div className="flex-1 h-px bg-zinc-400/50"></div>
-          </div>
+          </div> */}
 
           {/* Direct Twitter Login Button */}
-          <button
+          {/* <button
             onClick={login}
             className="relative cursor-pointer z-10 w-full bg-black/80 hover:bg-black text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-2"
           >
@@ -205,17 +205,17 @@ export default function LoginPage() {
               <path d="M17.6874 3.0625L12.6907 8.77425L8.37045 3.0625H2.11328L9.58961 12.8387L2.50378 20.9375H5.53795L11.0068 14.6886L15.7863 20.9375H21.8885L14.095 10.6342L20.7198 3.0625H17.6874ZM16.6232 19.1225L5.65436 4.78217H7.45745L18.3034 19.1225H16.6232Z"></path>
             </svg>
             <span>Connect X + External Wallet</span>
-          </button>
+          </button> */}
 
           {/* Info text for direct Twitter */}
-          <p className="z-10 text-zinc-600 text-xs text-center">
+          {/* <p className="z-10 text-zinc-600 text-xs text-center">
             Connect your own Solana wallet (Phantom, Solflare, etc.)
-          </p>
+          </p> */}
 
           {/* Terms Text */}
-          <p className="text-zinc-500 text-xs text-center leading-relaxed z-10 mt-2">
+          {/* <p className="text-zinc-500 text-xs text-center leading-relaxed z-10 mt-2">
             By continuing, you agree to our Terms of Service and Privacy Policy.
-          </p>
+          </p> */}
         </div>
       </div>
 

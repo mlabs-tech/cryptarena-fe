@@ -7,7 +7,9 @@ import { useConnection } from '@/context/WalletContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
 import { indexerApi, CurrentArenaResponse, PlayerCheckResponse } from '@/lib/indexer-api';
+import { backendApi } from '@/lib/backend-api';
 import { useCryptarena } from '@/hooks/useCryptarena';
+import { api } from '@/lib/api';
 import Image from 'next/image';
 import localFont from 'next/font/local';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -261,6 +263,11 @@ function QueueMatchPage() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isConfirmingInWallet, setIsConfirmingInWallet] = useState(false);
 
+  // Airdrop state
+  const [isClaimingAirdrop, setIsClaimingAirdrop] = useState(false);
+  const [airdropError, setAirdropError] = useState<string | null>(null);
+  const [airdropSuccess, setAirdropSuccess] = useState(false);
+
   // Arena state from indexer
   const [arenaData, setArenaData] = useState<CurrentArenaResponse | null>(null);
   const [playerCheck, setPlayerCheck] = useState<PlayerCheckResponse | null>(null);
@@ -423,6 +430,41 @@ function QueueMatchPage() {
   const handleLockInClick = () => {
     if (!selectedToken) return;
     setShowConfirmModal(true);
+  };
+
+  // Handle airdrop claim
+  const handleClaimAirdrop = async () => {
+    if (!publicKey) return;
+    
+    setIsClaimingAirdrop(true);
+    setAirdropError(null);
+    setAirdropSuccess(false);
+    
+    try {
+      const token = api.getAccessToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+      
+      const response = await backendApi.claimAirdrop(publicKey.toBase58(), token);
+      
+      if (response.status === 'SUCCESS') {
+        setAirdropSuccess(true);
+        setAirdropError(null);
+        
+        // Refresh SOL balance after successful claim
+        setTimeout(() => {
+          fetchSolBalanceAndFee();
+        }, 2000);
+      } else {
+        setAirdropError('Airdrop processing, please wait...');
+      }
+    } catch (err) {
+      console.error('Airdrop claim failed:', err);
+      setAirdropError(err instanceof Error ? err.message : 'Failed to claim airdrop');
+    } finally {
+      setIsClaimingAirdrop(false);
+    }
   };
 
   // Handle confirmed LOCK IN
@@ -1147,18 +1189,6 @@ function QueueMatchPage() {
                   >
                     CONNECT WALLET
                   </button>
-                ) : hasInsufficientBalance() ? (
-                  <div className="space-y-2 text-center">
-                    <button 
-                      className="bg-red-500/20 text-red-400 font-black text-xl px-10 py-5 rounded-2xl border-2 border-red-500/50 cursor-not-allowed"
-                      disabled
-                    >
-                      INSUFFICIENT SOL
-                    </button>
-                    <p className="text-red-400 text-xs">
-                      Need {(entryFee + 0.01).toFixed(3)} SOL • You have {solBalance.toFixed(4)} SOL
-                    </p>
-                  </div>
                 ) : txStatus === 'signing' || txStatus === 'confirming' || isEntering ? (
                   <button 
                     className="bg-amber-400/50 text-gray-900 font-black text-xl px-10 py-5 rounded-2xl border-2 border-amber-500/50 cursor-wait flex items-center justify-center gap-3"
@@ -1278,57 +1308,113 @@ function QueueMatchPage() {
                     </div>
                   </div>
                   
-                  {/* Warning */}
-                  <div className="flex items-start gap-3 p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 mb-6 animate-[contentFadeIn_0.5s_ease-out_0.35s_both]">
-                    <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <div>
-                      <p className="text-amber-400 text-sm font-medium">Once locked in, you cannot change your champion</p>
-                      <p className="text-amber-400/60 text-xs mt-1">Make sure you&apos;ve selected the right one!</p>
+                  {/* Warning / Info */}
+                  {hasInsufficientBalance() ? (
+                    <div className="flex items-start gap-3 p-3 bg-cyan-500/10 rounded-xl border border-cyan-500/30 mb-6 animate-[contentFadeIn_0.5s_ease-out_0.35s_both]">
+                      <svg className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-cyan-400 text-sm font-medium">Testnet Phase - Free SOL Available</p>
+                        <p className="text-cyan-400/60 text-xs mt-1">You don&apos;t have enough testnet SOL. Click the button below to claim free tokens!</p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-start gap-3 p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 mb-6 animate-[contentFadeIn_0.5s_ease-out_0.35s_both]">
+                      <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div>
+                        <p className="text-amber-400 text-sm font-medium">Once locked in, you cannot change your champion</p>
+                        <p className="text-amber-400/60 text-xs mt-1">Make sure you&apos;ve selected the right one!</p>
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Action Buttons */}
                   <div className="flex gap-3 animate-[contentFadeIn_0.5s_ease-out_0.4s_both]">
-                    {!isConfirmingInWallet && (
-                      <button
-                        onClick={() => setShowConfirmModal(false)}
-                        className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all duration-200 cursor-pointer border border-white/10 hover:border-white/20"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                    <button
-                      onClick={handleConfirmLockIn}
-                      disabled={isConfirmingInWallet}
-                      className={`group relative py-3 text-gray-900 font-black rounded-xl transition-all duration-200 shadow-lg overflow-hidden ${
-                        isConfirmingInWallet 
-                          ? 'w-full bg-amber-400/70 cursor-wait shadow-amber-500/20' 
-                          : 'flex-1 bg-amber-400 hover:bg-amber-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-amber-500/30 hover:shadow-amber-500/50'
-                      }`}
-                      style={{ fontFamily: 'var(--font-ace-of-swords)' }}
-                    >
-                      {/* Animated spinning border - always visible when not loading */}
-                      {!isConfirmingInWallet && (
-                        <span className="absolute inset-0 rounded-xl">
-                          <span 
-                            className="absolute inset-[-4px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)]"
-                            style={{ animation: 'borderSpin 3s linear infinite' }}
-                          />
-                          <span className="absolute inset-[3px] rounded-lg bg-amber-400 group-hover:bg-amber-300 transition-colors" />
-                        </span>
-                      )}
-                      <span className="relative z-10 flex items-center justify-center gap-2">
-                        {isConfirmingInWallet && (
-                          <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
+                    {/* Show Claim Airdrop button if insufficient balance */}
+                    {hasInsufficientBalance() ? (
+                      <div className="w-full">
+                        {airdropSuccess ? (
+                          <div className="w-full py-4 bg-green-500/20 text-green-400 font-bold rounded-xl border border-green-500/30 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              <span>SOL Claimed! Wait 5s...</span>
+                            </div>
+                            <p className="text-green-400/70 text-xs mt-1">Balance updating...</p>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleClaimAirdrop}
+                            disabled={isClaimingAirdrop}
+                            className={`w-full py-3 text-white font-bold rounded-xl transition-all duration-200 shadow-lg ${
+                              isClaimingAirdrop 
+                                ? 'bg-cyan-400/70 cursor-wait shadow-cyan-500/20' 
+                                : 'bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-cyan-500/30 hover:shadow-cyan-500/50'
+                            }`}
+                          >
+                            <span className="flex items-center justify-center gap-2">
+                              {isClaimingAirdrop && (
+                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                </svg>
+                              )}
+                              {isClaimingAirdrop ? 'Claiming...' : 'Claim FREE Solana Testnet Tokens'}
+                            </span>
+                          </button>
                         )}
-                        {isConfirmingInWallet ? 'CONFIRM IN WALLET...' : 'LOCK IN'}
-                      </span>
-                    </button>
+                        {airdropError && (
+                          <div className="w-full mt-3 p-4 bg-red-500/20 rounded-xl border border-red-500/30">
+                            <p className="text-red-400 text-sm leading-relaxed whitespace-pre-line">{airdropError}</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {!isConfirmingInWallet && (
+                          <button
+                            onClick={() => setShowConfirmModal(false)}
+                            className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all duration-200 cursor-pointer border border-white/10 hover:border-white/20"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        <button
+                          onClick={handleConfirmLockIn}
+                          disabled={isConfirmingInWallet}
+                          className={`group relative py-3 text-gray-900 font-black rounded-xl transition-all duration-200 shadow-lg overflow-hidden ${
+                            isConfirmingInWallet 
+                              ? 'w-full bg-amber-400/70 cursor-wait shadow-amber-500/20' 
+                              : 'flex-1 bg-amber-400 hover:bg-amber-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-amber-500/30 hover:shadow-amber-500/50'
+                          }`}
+                          style={{ fontFamily: 'var(--font-ace-of-swords)' }}
+                        >
+                          {/* Animated spinning border - always visible when not loading */}
+                          {!isConfirmingInWallet && (
+                            <span className="absolute inset-0 rounded-xl">
+                              <span 
+                                className="absolute inset-[-4px] rounded-xl bg-[conic-gradient(from_0deg,#ffffff,#e5e5e5,#ffffff,#f5f5f5,#ffffff,#e5e5e5,#ffffff)]"
+                                style={{ animation: 'borderSpin 3s linear infinite' }}
+                              />
+                              <span className="absolute inset-[3px] rounded-lg bg-amber-400 group-hover:bg-amber-300 transition-colors" />
+                            </span>
+                          )}
+                          <span className="relative z-10 flex items-center justify-center gap-2">
+                            {isConfirmingInWallet && (
+                              <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                            )}
+                            {isConfirmingInWallet ? 'CONFIRM IN WALLET...' : 'LOCK IN'}
+                          </span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

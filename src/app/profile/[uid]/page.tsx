@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet, useWalletContext } from '@/context/WalletContext';
 import { usePrivyAuth } from '@/context/PrivyContext';
+import { useSignTransaction, useWallets } from '@privy-io/react-auth/solana';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
 import ClaimRewardsSidebar from '@/components/ClaimRewardsSidebar';
@@ -162,6 +163,10 @@ function ProfilePage() {
   const { publicKey, connected, sendTransaction } = useWallet();
   const { currentLinkedWallet } = useWalletContext();
   const { getSolanaWalletAddress, isPrivyAuthenticated, copySolanaAddress, exportPrivateKey } = usePrivyAuth();
+  
+  // Privy wallet hooks for withdraw functionality
+  const { signTransaction: privySignTransaction } = useSignTransaction();
+  const { wallets: privyWallets, ready: privyWalletsReady } = useWallets();
   
   // Get initial tab from URL query param
   const initialTab = searchParams.get('tab') as ProfileTab | null;
@@ -360,10 +365,125 @@ function ProfilePage() {
     }
   };
 
-  // Handle withdraw for Privy wallets (this would need Privy's signTransaction)
+  // Handle withdraw for Privy wallets
   const handleWithdraw = async () => {
-    // For now, show instructions - actual withdraw would need Privy's embedded wallet signing
-    setWithdrawError('Withdraw functionality coming soon. Please use the Solana CLI or a wallet app to withdraw funds.');
+    if (!withdrawAddress || !withdrawAmount || parseFloat(withdrawAmount) <= 0) {
+      setWithdrawError('Please enter a valid address and amount');
+      return;
+    }
+
+    setIsWithdrawing(true);
+    setWithdrawError(null);
+    setWithdrawSuccess(false);
+
+    try {
+      // Validate recipient address
+      let recipientPubkey: PublicKey;
+      try {
+        recipientPubkey = new PublicKey(withdrawAddress);
+      } catch (err) {
+        setWithdrawError('Invalid Solana address');
+        setIsWithdrawing(false);
+        return;
+      }
+
+      const walletAddress = getCurrentWalletAddress();
+      if (!walletAddress) {
+        setWithdrawError('No wallet connected');
+        setIsWithdrawing(false);
+        return;
+      }
+
+      const fromPubkey = new PublicKey(walletAddress);
+      const amountLamports = Math.floor(parseFloat(withdrawAmount) * LAMPORTS_PER_SOL);
+
+      // Create connection
+      const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+
+      // Create transfer transaction
+      const transaction = new Transaction();
+      transaction.add(
+        SystemProgram.transfer({
+          fromPubkey,
+          toPubkey: recipientPubkey,
+          lamports: amountLamports,
+        })
+      );
+
+      // Get recent blockhash
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = fromPubkey;
+
+      let signature: string;
+
+      // Use appropriate signing method based on auth method
+      if (authMethod === 'privy' && isPrivyAuthenticated) {
+        // Privy wallet signing
+        if (!privyWalletsReady) {
+          setWithdrawError('Privy wallets not ready. Please try again.');
+          setIsWithdrawing(false);
+          return;
+        }
+
+        // Get the Privy Solana wallet
+        const privyWallet = privyWallets.find(w => w.address === walletAddress) || privyWallets[0];
+        
+        if (!privyWallet) {
+          setWithdrawError('Privy wallet not found. Please reconnect.');
+          setIsWithdrawing(false);
+          return;
+        }
+
+        // Serialize the transaction for Privy
+        const serializedTransaction = new Uint8Array(
+          transaction.serialize({ requireAllSignatures: false })
+        );
+
+        // Sign with Privy
+        const signResult = await privySignTransaction({
+          transaction: serializedTransaction,
+          wallet: privyWallet,
+          options: {
+            uiOptions: {
+              showWalletUIs: false, // Skip Privy's transaction preview UI
+            },
+          },
+        });
+
+        // Send the signed transaction (signResult contains signedTransaction property)
+        signature = await connection.sendRawTransaction(signResult.signedTransaction, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+      } else if (connected && publicKey && sendTransaction) {
+        // External wallet signing (Phantom, Solflare, etc.)
+        signature = await sendTransaction(transaction, connection);
+      } else {
+        setWithdrawError('No wallet connected');
+        setIsWithdrawing(false);
+        return;
+      }
+
+      // Wait for confirmation
+      await connection.confirmTransaction(signature, 'confirmed');
+
+      // Success!
+      setWithdrawSuccess(true);
+      setWithdrawAddress('');
+      setWithdrawAmount('');
+      
+      // Refresh balance
+      setTimeout(() => {
+        fetchWalletBalance(walletAddress);
+      }, 1000);
+
+    } catch (err) {
+      console.error('Withdraw error:', err);
+      setWithdrawError(err instanceof Error ? err.message : 'Withdrawal failed. Please try again.');
+    } finally {
+      setIsWithdrawing(false);
+    }
   };
 
   useEffect(() => {

@@ -196,8 +196,8 @@ function HomePage() {
                     key={quest.questId}
                     className={`backdrop-blur-sm rounded-xl p-4 transition-all ${
                       quest.isCompleted 
-                        ? 'bg-green-500/20 border border-green-500/30' 
-                        : 'bg-zinc-700/60'
+                        ? 'bg-green-900/50 border border-green-500/30' 
+                        : 'bg-zinc-900/60'
                     }`}
                   >
                     <div className="flex items-start justify-between mb-2">
