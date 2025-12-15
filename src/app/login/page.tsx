@@ -97,7 +97,7 @@ export default function LoginPage() {
     <div className="fixed inset-0 overflow-hidden">
       {/* Background Image */}
       <Image
-        src="https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/7cad699c-265b-463d-1175-23d86aa9d200/public"
+        src="https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/b245033a-d2c0-4279-59ca-d4cb96ad9e00/public"
         alt="CryptArena Background"
         fill
         priority
@@ -109,16 +109,31 @@ export default function LoginPage() {
       <div className="relative z-10 flex h-full w-full items-center justify-between px-12 md:px-20 lg:px-32">
         {/* Left Side - Title */}
         <div className={`flex flex-col gap-0 ${aceOfSwords.variable}`}>
-          <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-normal text-black tracking-tight leading-[0.95]"
-              style={{ fontFamily: 'var(--font-ace-of-swords), system-ui, sans-serif' }}>
+          <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-normal tracking-tight leading-[0.95]"
+              style={{ 
+                fontFamily: 'var(--font-ace-of-swords), system-ui, sans-serif',
+                color: '#364D74',
+                WebkitTextStroke: '4px #FFF1A6',
+                textShadow: '0 0 15px rgba(255, 241, 166, 0.6)'
+              }}>
             THE
           </h1>
-          <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-normal text-black tracking-tight leading-[0.95]"
-              style={{ fontFamily: 'var(--font-ace-of-swords), system-ui, sans-serif' }}>
+          <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-normal tracking-tight leading-[0.95]"
+              style={{ 
+                fontFamily: 'var(--font-ace-of-swords), system-ui, sans-serif',
+                color: '#364D74',
+                WebkitTextStroke: '4px #FFF1A6',
+                textShadow: '0 0 15px rgba(255, 241, 166, 0.6)'
+              }}>
             ADVENTURE
           </h1>
-          <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-normal text-black tracking-tight leading-[0.95]"
-              style={{ fontFamily: 'var(--font-ace-of-swords), system-ui, sans-serif' }}>
+          <h1 className="text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-normal tracking-tight leading-[0.95]"
+              style={{ 
+                fontFamily: 'var(--font-ace-of-swords), system-ui, sans-serif',
+                color: '#364D74',
+                WebkitTextStroke: '4px #FFF1A6',
+                textShadow: '0 0 15px rgba(255, 241, 166, 0.6)'
+              }}>
             BEGINS NOW
           </h1>
         </div>
@@ -150,9 +165,9 @@ export default function LoginPage() {
 
           {/* Welcome Text */}
           <div className="text-center z-10">
-            <h2 className="text-xl font-semibold text-zinc-800 mb-2 drop-shadow-sm">Welcome, Champion</h2>
-            <p className="text-zinc-600 text-sm">
-              Choose your path to enter the arena
+            <h2 className="text-xl font-bold text-zinc-900 mb-2 drop-shadow-sm">Welcome, Champion</h2>
+            <p className="text-zinc-700 text-sm font-medium">
+              Choose how you want to connect
             </p>
           </div>
 
@@ -163,54 +178,66 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Privy Login Button (Recommended) */}
-          <button
-            onClick={handlePrivyLogin}
-            disabled={isPrivyLoading}
-            className="relative cursor-pointer z-10 w-full bg-black hover:from-amber-600 hover:to-orange-600 text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {isPrivyLoading ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                <span>Connecting...</span>
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                  <path d="M17.6874 3.0625L12.6907 8.77425L8.37045 3.0625H2.11328L9.58961 12.8387L2.50378 20.9375H5.53795L11.0068 14.6886L15.7863 20.9375H21.8885L14.095 10.6342L20.7198 3.0625H17.6874ZM16.6232 19.1225L5.65436 4.78217H7.45745L18.3034 19.1225H16.6232Z"></path>
-                </svg>
-                <span>Sign in</span>
-              </>
-            )}
-          </button>
-
-          {/* Info text for Privy */}
-          <p className="z-10 text-zinc-600 text-xs text-center">
-            Recommended: Auto-generates a Solana wallet for you
-          </p>
+          {/* Option 1: External Wallet */}
+          <div className="z-10 w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-yellow-400 text-black text-xs font-bold shadow-sm">1</div>
+              <span className="text-zinc-800 font-semibold text-sm">Use your own Solana wallet</span>
+            </div>
+            <button
+              onClick={login}
+              className="relative cursor-pointer w-full bg-black hover:bg-zinc-800 text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-3"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M17.6874 3.0625L12.6907 8.77425L8.37045 3.0625H2.11328L9.58961 12.8387L2.50378 20.9375H5.53795L11.0068 14.6886L15.7863 20.9375H21.8885L14.095 10.6342L20.7198 3.0625H17.6874ZM16.6232 19.1225L5.65436 4.78217H7.45745L18.3034 19.1225H16.6232Z"></path>
+              </svg>
+              <span>Sign in with X</span>
+            </button>
+            <p className="text-zinc-700 text-xs text-center mt-2 font-medium">
+              You'll connect your Phantom/Solflare wallet after login
+            </p>
+          </div>
 
           {/* Divider */}
-          {/* <div className="z-10 w-full flex items-center gap-4">
-            <div className="flex-1 h-px bg-zinc-400/50"></div>
-            <span className="text-zinc-500 text-sm">or</span>
-            <div className="flex-1 h-px bg-zinc-400/50"></div>
-          </div> */}
+          <div className="z-10 w-full flex items-center gap-4">
+            <div className="flex-1 h-px bg-zinc-500/60"></div>
+            <span className="text-zinc-700 text-sm font-medium">or</span>
+            <div className="flex-1 h-px bg-zinc-500/60"></div>
+          </div>
 
-          {/* Direct Twitter Login Button */}
-          {/* <button
-            onClick={login}
-            className="relative cursor-pointer z-10 w-full bg-black/80 hover:bg-black text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-              <path d="M17.6874 3.0625L12.6907 8.77425L8.37045 3.0625H2.11328L9.58961 12.8387L2.50378 20.9375H5.53795L11.0068 14.6886L15.7863 20.9375H21.8885L14.095 10.6342L20.7198 3.0625H17.6874ZM16.6232 19.1225L5.65436 4.78217H7.45745L18.3034 19.1225H16.6232Z"></path>
-            </svg>
-            <span>Connect X + External Wallet</span>
-          </button> */}
-
-          {/* Info text for direct Twitter */}
-          {/* <p className="z-10 text-zinc-600 text-xs text-center">
-            Connect your own Solana wallet (Phantom, Solflare, etc.)
-          </p> */}
+          {/* Option 2: Create New Wallet */}
+          <div className="z-10 w-full">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-yellow-400 text-black text-xs font-bold shadow-sm">2</div>
+              <span className="text-zinc-800 font-semibold text-sm">Create a new wallet for CryptArena</span>
+            </div>
+            <button
+              onClick={handlePrivyLogin}
+              disabled={isPrivyLoading}
+              className="relative cursor-pointer w-full bg-black hover:bg-zinc-800 text-white font-semibold py-4 px-8 rounded-full transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] text-lg shadow-lg hover:shadow-2xl flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isPrivyLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                  <span>Creating wallet...</span>
+                </>
+              ) : (
+                <>
+                  <Image
+                    src="https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/4b58a3d8-dd2a-4c7e-fbf1-bc2387fe8200/public"
+                    alt="Privy"
+                    width={24}
+                    height={24}
+                    className="rounded-full"
+                  />
+                  <span>Sign In</span>
+                </>
+              )}
+            </button>
+            <p className="text-zinc-700 text-xs text-center mt-2 font-medium">
+              We'll automatically create a secure Solana wallet for you
+            </p>
+          </div>
 
           {/* Terms Text */}
           {/* <p className="text-zinc-500 text-xs text-center leading-relaxed z-10 mt-2">
