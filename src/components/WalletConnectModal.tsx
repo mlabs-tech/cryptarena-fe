@@ -32,17 +32,19 @@ export default function WalletConnectModal({ isOpen, onClose, onSuccess }: Walle
   const [step, setStep] = useState<ModalStep>('connect');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [hasAttemptedLink, setHasAttemptedLink] = useState(false); // Track if we've already tried linking
 
   // Filter to only show Solana wallets (Phantom, Solflare)
   const solanaWallets = wallets.filter(w => 
     w.adapter.name === 'Phantom' || w.adapter.name === 'Solflare'
   );
 
-  // Reset state when modal opens
+  // Reset state when modal opens or closes
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
       setIsConnecting(false);
+      setHasAttemptedLink(false); // Reset link attempt flag
       if (connected && currentLinkedWallet) {
         setStep('success');
       } else if (connected) {
@@ -50,19 +52,24 @@ export default function WalletConnectModal({ isOpen, onClose, onSuccess }: Walle
       } else {
         setStep('connect');
       }
+    } else {
+      // Reset flag when modal closes
+      setHasAttemptedLink(false);
     }
   }, [isOpen, connected, currentLinkedWallet]);
 
-  // Handle wallet connection changes
+  // Handle wallet connection changes - only trigger once
   useEffect(() => {
-    if (connected && step === 'connect') {
+    if (connected && step === 'connect' && !hasAttemptedLink && !isLinking) {
       setStep('linking');
+      setHasAttemptedLink(true); // Mark that we've attempted linking
       handleLinkWallet();
     }
-  }, [connected, step]);
+  }, [connected, step, hasAttemptedLink, isLinking]);
 
   const handleLinkWallet = useCallback(async () => {
-    if (!connected) return;
+    // Guard against multiple simultaneous calls
+    if (!connected || isLinking) return;
     
     setStep('linking');
     const result = await checkAndLinkWallet();
@@ -77,7 +84,7 @@ export default function WalletConnectModal({ isOpen, onClose, onSuccess }: Walle
       setErrorMessage(result.error || 'Failed to link wallet');
       setStep('error');
     }
-  }, [connected, checkAndLinkWallet, onSuccess, onClose]);
+  }, [connected, isLinking, checkAndLinkWallet, onSuccess, onClose]);
 
   const handleSelectWallet = async (walletName: string) => {
     setIsConnecting(true);
@@ -94,7 +101,9 @@ export default function WalletConnectModal({ isOpen, onClose, onSuccess }: Walle
 
   const handleRetry = () => {
     setErrorMessage(null);
+    setHasAttemptedLink(false); // Reset flag to allow retry
     if (connected) {
+      setHasAttemptedLink(true); // Mark that we're attempting
       handleLinkWallet();
     } else {
       setStep('connect');
@@ -106,6 +115,7 @@ export default function WalletConnectModal({ isOpen, onClose, onSuccess }: Walle
     setStep('connect');
     setErrorMessage(null);
     setIsConnecting(false);
+    setHasAttemptedLink(false); // Reset flag when disconnecting
   };
 
   const getWalletStatus = (walletAdapter: any) => {

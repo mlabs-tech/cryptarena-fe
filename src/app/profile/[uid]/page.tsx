@@ -1070,25 +1070,25 @@ function ProfilePage() {
                           alt="Badge 1"
                           width={64}
                           height={64}
-                          className="object-contain rounded-full z-0"
+                          className="object-contain rounded-full z-0 opacity-50"
                         />
                         <Image
                           src="https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/79e23834-d040-4616-ac79-8d2a57cc7800/public"
                           alt="Badge 2"
                           width={80}
                           height={80}
-                          className="object-contain rounded-full z-10"
+                          className="object-contain rounded-full z-10 opacity-50"
                         />
                         <Image
                           src="https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/f3795a37-6611-4726-9775-0db9754e8400/public"
                           alt="Badge 3"
                           width={64}
                           height={64}
-                          className="object-contain rounded-full z-0"
+                          className="object-contain rounded-full z-0 opacity-50"
                         />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold text-white">{masteryStats.badges}</p>
+                    <p className="text-lg font-bold text-white/60">Coming Soon</p>
                     <p className="text-white/50 text-base">Badges</p>
                   </div>
 
@@ -1109,8 +1109,8 @@ function ProfilePage() {
                     <p className="text-white/50 text-base">Matches</p>
                   </div>
 
-                  {/* Challenges */}
-                  <div className="text-center">
+                  {/* Challenges - Hidden */}
+                  {/* <div className="text-center">
                     <div className="mb-4 h-24 flex items-center justify-center">
                       <Image
                         src="https://imagedelivery.net/6WLqUjtBbGnMsdHq6NNK_w/37c52a78-2085-44cf-9155-efb9be37f300/public"
@@ -1122,7 +1122,7 @@ function ProfilePage() {
                     </div>
                     <p className="text-3xl font-bold text-white">{masteryStats.challenges}</p>
                     <p className="text-white/50 text-base">Challenges</p>
-                  </div>
+                  </div> */}
                 </div>
               </div>
             </div>
@@ -1141,7 +1141,8 @@ function ProfilePage() {
                 >
                   Arena History
                 </button>
-                <button
+                {/* Champions tab - hidden for now */}
+                {/* <button
                   onClick={() => setActiveTab('champions')}
                   className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ${
                     activeTab === 'champions' 
@@ -1150,7 +1151,7 @@ function ProfilePage() {
                   }`}
                 >
                   Champions
-                </button>
+                </button> */}
                 {/* Wallet tab - only visible on own profile */}
                 {isOwnProfile && (
                   <button

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { ConnectionProvider, WalletProvider, useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { api, Wallet as LinkedWallet, WalletCheckResponse } from '@/lib/api';
@@ -36,6 +36,9 @@ function WalletContextProvider({ children }: { children: ReactNode }) {
   const [isLoadingWallets, setIsLoadingWallets] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const [linkingError, setLinkingError] = useState<string | null>(null);
+  
+  // Use ref to track linking state for immediate access (prevents race conditions)
+  const isLinkingRef = useRef(false);
 
   // Load linked wallets when authenticated
   const refreshLinkedWallets = useCallback(async () => {
@@ -65,7 +68,14 @@ function WalletContextProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'No wallet connected' };
     }
 
+    // Prevent concurrent calls - if already linking, return early
+    if (isLinkingRef.current) {
+      console.log('Wallet linking already in progress, skipping duplicate call');
+      return { success: false, error: 'Linking already in progress' };
+    }
+
     const walletAddress = publicKey.toBase58();
+    isLinkingRef.current = true;
     setIsLinking(true);
     setLinkingError(null);
 
@@ -118,6 +128,7 @@ function WalletContextProvider({ children }: { children: ReactNode }) {
       setLinkingError(errorMessage);
       return { success: false, error: errorMessage };
     } finally {
+      isLinkingRef.current = false;
       setIsLinking(false);
     }
   }, [publicKey, signMessage, connected, refreshLinkedWallets]);

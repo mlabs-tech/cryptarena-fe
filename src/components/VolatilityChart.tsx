@@ -330,31 +330,8 @@ export default function VolatilityChart({
       maxVol += adjustment;
     }
 
-    // Draw title with live indicator
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.font = 'bold 14px system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('LIVE', PADDING.left, 28);
-
-    // Draw live indicator dot (pulsing if streaming)
-    ctx.fillStyle = isStreaming ? '#22c55e' : '#38bdf8';
-    ctx.beginPath();
-    ctx.arc(PADDING.left + 42, 24, 4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw streaming status
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.font = '10px system-ui, sans-serif';
-    const statusText = isStreaming ? 'real-time streaming' : `updates every ${refreshInterval / 1000}s`;
-    ctx.fillText(statusText, PADDING.left + 55, 28);
-    
-    // Draw last update time if streaming
-    if (isStreaming && lastUpdate) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.font = '9px system-ui, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(`last: ${lastUpdate.toLocaleTimeString()}`, width - PADDING.right, 28);
-    }
+    // Removed LIVE indicator, green bullet, and real-time streaming text
+    // Pyth streaming indicator is shown in the UI overlay instead
 
     // Draw zero line (starting position)
     const zeroX = PADDING.left + ((0 - minVol) / (maxVol - minVol)) * (width - PADDING.left - PADDING.right);
@@ -568,8 +545,8 @@ export default function VolatilityChart({
         </div>
       )}
 
-      {/* View mode toggle */}
-      <div className="absolute top-3 right-4 z-10 flex gap-2">
+      {/* View mode toggle - History button hidden for now */}
+      {/* <div className="absolute top-3 right-4 z-10 flex gap-2">
         <button
           onClick={() => setViewMode('live')}
           className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
@@ -590,7 +567,7 @@ export default function VolatilityChart({
         >
           History
         </button>
-      </div>
+      </div> */}
 
       {/* Arena battlefield canvas */}
       <div 
