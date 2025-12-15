@@ -17,7 +17,11 @@ export function generateCodeVerifier(): string {
 export async function generateCodeChallenge(codeVerifier: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(codeVerifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
+  // Some TS/lib.dom combinations model `Uint8Array#buffer` as `ArrayBuffer | SharedArrayBuffer`,
+  // but WebCrypto's `BufferSource` type doesn't accept `SharedArrayBuffer` in those versions.
+  // Copy to a fresh ArrayBuffer to satisfy typing and keep runtime behavior identical.
+  const bytes = new Uint8Array(data);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
   return base64URLEncode(new Uint8Array(digest));
 }
 
