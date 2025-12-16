@@ -198,26 +198,22 @@ export default function SimpleVolatilityChart({
       });
       
       const volatilityValues = Object.values(displayPositionsForRange);
-      const actualMin = Math.min(...volatilityValues, 0);
-      const actualMax = Math.max(...volatilityValues, 0);
-      const spread = actualMax - actualMin;
-      const minSpread = 0.1;
-      const effectiveSpread = Math.max(spread, minSpread);
-      const center = (actualMax + actualMin) / 2;
-      const halfRange = effectiveSpread * 0.8;
+      const actualMin = Math.min(...volatilityValues);
+      const actualMax = Math.max(...volatilityValues);
       
-      let minVol = center - halfRange;
-      let maxVol = center + halfRange;
+      // Use a FIXED scale centered at 0 - this makes all tokens move together
+      // Base range is -0.3% to +0.3%, but expands if values go beyond
+      const baseRange = 0.3; // 0.3% on each side of zero
+      const padding = 0.15; // Extra padding beyond actual values
       
-      if (actualMin >= 0) minVol = Math.min(-halfRange * 0.1, minVol);
-      if (actualMax <= 0) maxVol = Math.max(halfRange * 0.1, maxVol);
+      // Calculate required range to fit all values with padding
+      const requiredMin = actualMin - Math.abs(actualMin) * padding;
+      const requiredMax = actualMax + Math.abs(actualMax) * padding;
       
-      const finalRange = maxVol - minVol;
-      if (finalRange < minSpread) {
-        const adjustment = (minSpread - finalRange) / 2;
-        minVol -= adjustment;
-        maxVol += adjustment;
-      }
+      // Use fixed range or expand if needed, always symmetric around 0
+      const maxAbsValue = Math.max(Math.abs(requiredMin), Math.abs(requiredMax), baseRange);
+      const minVol = -maxAbsValue;
+      const maxVol = maxAbsValue;
 
       // Draw zero line (starting position)
       const zeroX = PADDING.left + ((0 - minVol) / (maxVol - minVol)) * (width - PADDING.left - PADDING.right);
