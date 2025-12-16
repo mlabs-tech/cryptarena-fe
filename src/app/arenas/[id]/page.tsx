@@ -1,15 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useWallet } from '@/context/WalletContext';
-import { useArenaVolatility } from '@/context/PythStreamContext';
+import { usePythStream, useArenaVolatility } from '@/context/PythStreamContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
-import VolatilityChart from '@/components/VolatilityChart';
+// import VolatilityChart from '@/components/VolatilityChart'; // Hidden for now
 import HexArenaChart from '@/components/HexArenaChart';
-import { indexerApi } from '@/lib/indexer-api';
 import Image from 'next/image';
 import localFont from 'next/font/local';
 
@@ -39,8 +38,8 @@ interface ArenaAsset {
   isWinner: boolean;
   startPrice?: number;
   endPrice?: number;
-  priceMovementRaw?: string;  // Raw value from Solana (10^12 precision). Divide by 1,000,000,000,000 to get %
-  priceMovementBps?: number;  // For backward compatibility
+  priceMovementRaw?: string;
+  priceMovementBps?: number;
 }
 
 interface ArenaDetail {
@@ -77,12 +76,6 @@ const ArenaStatus = {
   Canceled: 4,
 };
 
-// Token symbols (including EVM tokens)
-const TOKEN_SYMBOLS = [
-  'SOL', 'TRUMP', 'PUMP', 'BONK', 'JUP', 'PENGU', 'PYTH', 'HNT', 'FARTCOIN', 'RAY', 'JTO', 'KMNO', 'MET', 'W',
-  'ETH', 'UNI', 'LINK', 'PEPE', 'SHIB'
-];
-
 function ArenaDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -90,36 +83,37 @@ function ArenaDetailPage() {
   const { user } = useAuth();
   const { publicKey } = useWallet();
   
+  // Pyth streaming
+  const { subscribeToArena, unsubscribeFromArena } = usePythStream();
+  const { data: pythVolatility, isStreaming } = useArenaVolatility(arenaId || '');
+  
+  // Core state
   const [arena, setArena] = useState<ArenaDetail | null>(null);
   const [userProfiles, setUserProfiles] = useState<Record<string, UserProfile | null>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [chartView, setChartView] = useState<'standard' | 'hex' | 'spaghetti'>('standard');
-  const [volatilityData, setVolatilityData] = useState<Map<number, number>>(new Map());
-  const [startPrices, setStartPrices] = useState<Map<number, number>>(new Map()); // assetIndex -> startPrice
-  const [currentTime, setCurrentTime] = useState(new Date());
   
-  // Track flash effects for participants
-  const [flashingAssets, setFlashingAssets] = useState<Set<number>>(new Set());
-  const [newLeader, setNewLeader] = useState<number | null>(null);
-  
-  // Countdown state for arena ending
+  // Countdown state
   const [endCountdown, setEndCountdown] = useState<number | null>(null);
-  const [useIndexerPrices, setUseIndexerPrices] = useState(false);
-  const [isArenaEnding, setIsArenaEnding] = useState(false); // True when countdown <= 0 but not yet transitioned
-  const [isLastTenSeconds, setIsLastTenSeconds] = useState(false); // True when countdown <= 10s (slow down Pyth)
-  const [pendingEndedTransition, setPendingEndedTransition] = useState(false); // Delay before showing Ended state
-  const [displayedStatus, setDisplayedStatus] = useState<number | null>(null); // What status to show in UI
-  const [lastStreamUpdateTime, setLastStreamUpdateTime] = useState<number>(0); // For throttling stream updates
+  const [displayCountdown, setDisplayCountdown] = useState<number | null>(null); // Slowed countdown for display
+  const [isPolling, setIsPolling] = useState(false);
+  const [isWaitingPolling, setIsWaitingPolling] = useState(false); // Polling for Waiting -> Active
+  
+  // Transition states for smooth end animation
+  const [showArenaEndedBanner, setShowArenaEndedBanner] = useState(false); // 2s banner after receiving endPrice
+  const [endedArenaData, setEndedArenaData] = useState<ArenaDetail | null>(null); // Store ended data for transition
+  const [wasLiveDuringArena, setWasLiveDuringArena] = useState(false); // Track if user was on page during active
+  
+  // Refs to track state without causing re-renders
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const waitingPollingRef = useRef<NodeJS.Timeout | null>(null);
+  const hasStartedPollingRef = useRef(false);
+  const hasSubscribedRef = useRef(false);
+  const previousStatusRef = useRef<number | null>(null);
+  const countdownStartTimeRef = useRef<number | null>(null);
+  const totalDurationRef = useRef<number | null>(null);
 
-  // Only enable Pyth streaming for Active arenas (including "ending" state) until we get final prices
-  // Stop streaming when useIndexerPrices becomes true (after arena is Ended on-chain)
-  const shouldEnableStreaming = (arena?.status === ArenaStatus.Active || (displayedStatus === ArenaStatus.Active && pendingEndedTransition)) && !useIndexerPrices;
-  const { data: streamVolatility, isStreaming: isStreamingVolatility } = useArenaVolatility(
-    shouldEnableStreaming ? arenaId : ''
-  );
-
-  // Fetch arena details
+  // Fetch arena data from indexer
   const fetchArena = useCallback(async () => {
     if (!arenaId) return;
     
@@ -138,11 +132,13 @@ function ArenaDetailPage() {
       setArena(data);
       setError(null);
       
-      // Fetch user profiles for all players
+      // Fetch user profiles for all players (only on initial load or when players change)
       if (data.playerEntries) {
         const wallets = data.playerEntries.map((p: PlayerEntry) => p.playerWallet);
         fetchUserProfiles(wallets);
       }
+      
+      return data;
     } catch (err) {
       console.error('Failed to fetch arena:', err);
       setError('Could not load arena');
@@ -170,222 +166,263 @@ function ArenaDetailPage() {
       })
     );
     
-    setUserProfiles(profiles);
+    setUserProfiles(prev => ({ ...prev, ...profiles }));
   };
 
-  // Fetch volatility data
-  const fetchVolatilityData = useCallback(async () => {
-    if (!arenaId || !arena) return;
-    
-    // For ended or canceled arenas, use the stored priceMovementRaw (final volatility)
-    if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
-      const volatilityMap = new Map<number, number>();
-      arena.arenaAssets?.forEach(asset => {
-        // Use raw value (10^12 precision) - divide by 1,000,000,000,000 to get percentage
-        if (asset.priceMovementRaw) {
-          const rawValue = parseFloat(asset.priceMovementRaw);
-          volatilityMap.set(asset.assetIndex, rawValue / 1e12);
-        } else if (asset.priceMovementBps !== undefined && asset.priceMovementBps !== null) {
-          // Fallback to BPS for older data
-          volatilityMap.set(asset.assetIndex, asset.priceMovementBps / 100);
-        }
-      });
-      setVolatilityData(volatilityMap);
-      return;
-    }
-    
-    // For active arenas, only fetch startPrice (not volatility - that comes from stream)
-    if (arena.status !== ArenaStatus.Active) {
-      return;
-    }
-    
-    try {
-      const response = await indexerApi.getArenaVolatility(arenaId, '1m');
-      
-      // Build a map of assetIndex -> startPrice
-      // For active arenas, we don't update volatilityData here - it comes from the stream
-      const startPriceMap = new Map<number, number>();
-      
-      response.assets.forEach(asset => {
-        // Store startPrice for each asset
-        if (asset.startPrice && asset.startPrice > 0) {
-          startPriceMap.set(asset.assetIndex, asset.startPrice);
-        }
-      });
-      
-      // Only update startPrices, not volatilityData (volatility comes from stream)
-      if (startPriceMap.size > 0) {
-        setStartPrices(startPriceMap);
-      }
-    } catch (err) {
-      console.error('Failed to fetch volatility data:', err);
-    }
-  }, [arenaId, arena]);
-
+  // Initial fetch on mount
   useEffect(() => {
     fetchArena();
   }, [fetchArena]);
 
-  // Fetch startPrice immediately when arena becomes active
+  // Subscribe to Pyth stream when arena is Active
   useEffect(() => {
-    if (arena && arena.status === ArenaStatus.Active && startPrices.size === 0) {
-      console.log('[Arena] Arena became active, fetching startPrice...');
-      fetchVolatilityData();
-    }
-  }, [arena?.status, arena?.arenaId, fetchVolatilityData, startPrices.size]);
-
-  useEffect(() => {
-    if (arena) {
-      // Only fetch volatility data if we don't have startPrices yet (for active arenas)
-      // or if arena is ended/canceled (need final volatility)
-      if (arena.status === ArenaStatus.Active && startPrices.size === 0) {
-        fetchVolatilityData();
-      } else if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
-        fetchVolatilityData();
-      }
-      
-      // Poll every 2s when arena is ending (to detect status change quickly), otherwise every 5s
-      const pollInterval = isArenaEnding ? 2000 : 5000;
-      
-      const interval = setInterval(() => {
-        fetchArena(); // Refresh arena data (including status and end prices from Solana)
-        // Only fetch volatility data if needed (for ended/canceled or if startPrices missing)
-        if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
-          fetchVolatilityData(); // Refresh final volatility for ended arenas
-        } else if (arena.status === ArenaStatus.Active && startPrices.size === 0) {
-          fetchVolatilityData(); // Try to get startPrices if we don't have them yet
-        }
-      }, pollInterval);
-      
-      return () => clearInterval(interval);
-    }
-  }, [arena, fetchVolatilityData, fetchArena, isArenaEnding, startPrices.size]);
-
-  // Update current time and countdown every second
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-      
-      // Calculate countdown for active arenas
-      if (arena?.status === ArenaStatus.Active && arena.endTimestamp) {
-        const endTime = new Date(arena.endTimestamp).getTime();
-        const now = Date.now();
-        const remaining = Math.max(0, endTime - now);
-        setEndCountdown(remaining);
-        
-        // When countdown <= 10 seconds, slow down Pyth updates
-        if (remaining <= 10000 && !isLastTenSeconds) {
-          setIsLastTenSeconds(true);
-          console.log('[Arena] Last 10 seconds - slowing down Pyth updates to 5s');
-        }
-        
-        // When countdown reaches 0, set "arena is ending" state
-        if (remaining <= 0 && !isArenaEnding) {
-          setIsArenaEnding(true);
-          console.log('[Arena] Countdown reached 0 - arena is ending');
-        }
-      } else {
-        setEndCountdown(null);
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [arena?.status, arena?.endTimestamp, isArenaEnding, isLastTenSeconds]);
-
-  // Sync displayed status with arena status (except during ending transition)
-  useEffect(() => {
-    if (arena && !pendingEndedTransition) {
-      // If arena becomes Active, update displayedStatus
-      if (arena.status === ArenaStatus.Active && displayedStatus !== ArenaStatus.Active) {
-        console.log('[Arena] Arena became Active, updating displayedStatus');
-        setDisplayedStatus(ArenaStatus.Active);
-      }
-      // Initialize displayedStatus if null
-      else if (displayedStatus === null) {
-        setDisplayedStatus(arena.status);
-      }
-    }
-  }, [arena, displayedStatus, pendingEndedTransition]);
-
-  // Handle transition when arena becomes Ended or Canceled - delay UI update by 10 seconds
-  // During this time, show the final prices from Solana program (via indexer)
-  useEffect(() => {
-    const isEnded = arena?.status === ArenaStatus.Ended;
-    const isCanceled = arena?.status === ArenaStatus.Canceled;
+    if (!arena || !arenaId) return;
     
-    if ((isEnded || isCanceled) && displayedStatus === ArenaStatus.Active && !pendingEndedTransition) {
-      console.log(`[Arena] Arena ${isEnded ? 'ended' : 'canceled'} on-chain, starting 10s transition...`);
-      console.log('[Arena] Stopping Pyth stream, showing final indexed prices');
-      setPendingEndedTransition(true);
-      setUseIndexerPrices(true); // Stop Pyth stream, use final stored prices
+    // Only subscribe for Active arenas with assets
+    if (arena.status === ArenaStatus.Active && arena.arenaAssets && arena.arenaAssets.length > 0) {
+      // Don't re-subscribe if already subscribed
+      if (hasSubscribedRef.current) return;
       
-      // Fetch final volatility data immediately (this has startPrice, endPrice, priceMovement from Solana)
-      fetchVolatilityData();
+      const tokens = arena.arenaAssets.map(asset => ({
+        symbol: asset.assetSymbol,
+        assetIndex: asset.assetIndex,
+        startPrice: asset.startPrice || 0,
+      }));
       
-      // After 10 seconds, update the displayed status to show Winners/Losers
-      setTimeout(() => {
-        console.log('[Arena] Transition complete - showing final state');
-        setDisplayedStatus(arena?.status ?? ArenaStatus.Ended);
-        setIsArenaEnding(false);
-        setPendingEndedTransition(false);
-        setIsLastTenSeconds(false);
-      }, 10000);
+      console.log('[Arena] Subscribing to Pyth stream with tokens:', tokens.map(t => t.symbol));
+      subscribeToArena(arenaId, tokens);
+      hasSubscribedRef.current = true;
     }
-  }, [arena?.status, displayedStatus, pendingEndedTransition, fetchVolatilityData]);
+    
+    // Unsubscribe when arena ends
+    if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
+      if (hasSubscribedRef.current) {
+        console.log('[Arena] Arena ended, unsubscribing from Pyth stream');
+        unsubscribeFromArena(arenaId);
+        hasSubscribedRef.current = false;
+      }
+    }
+  }, [arena, arenaId, subscribeToArena, unsubscribeFromArena]);
 
-  // Sync stream volatility data with local state (for real-time updates)
-  // Skip when using indexer prices, throttle to 5s when in last 10 seconds
+  // Cleanup: unsubscribe on unmount
   useEffect(() => {
-    if (streamVolatility.length > 0 && arena?.status === ArenaStatus.Active && !useIndexerPrices) {
-      const now = Date.now();
-      
-      // Throttle updates to every 5 seconds when in last 10 seconds of countdown
-      if (isLastTenSeconds && (now - lastStreamUpdateTime) < 5000) {
-        return; // Skip this update
+    return () => {
+      if (hasSubscribedRef.current && arenaId) {
+        console.log('[Arena] Component unmounting, unsubscribing from Pyth stream');
+        unsubscribeFromArena(arenaId);
+        hasSubscribedRef.current = false;
       }
-      
-      const volatilityMap = new Map<number, number>();
-      const newFlashing = new Set<number>();
-      
-      // Get previous leader
-      const prevLeaderEntry = [...volatilityData.entries()].sort((a, b) => b[1] - a[1])[0];
-      const prevLeader = prevLeaderEntry ? prevLeaderEntry[0] : null;
-      
-      streamVolatility.forEach(item => {
-        volatilityMap.set(item.assetIndex, item.volatility);
-        
-        // Check if this asset's volatility just changed (for flash effect)
-        const prevVol = volatilityData.get(item.assetIndex);
-        if (prevVol !== undefined && Math.abs(item.volatility - prevVol) > 0.0001) {
-          newFlashing.add(item.assetIndex);
-        }
-        
-        // Check if this is the new leader
-        if (item.justTookLead) {
-          setNewLeader(item.assetIndex);
-          setTimeout(() => setNewLeader(null), 2000);
-        }
-      });
-      
-      setVolatilityData(volatilityMap);
-      setLastStreamUpdateTime(now); // Track when we last updated
-      
-      // Set flashing and clear after animation
-      if (newFlashing.size > 0) {
-        setFlashingAssets(prev => new Set([...prev, ...newFlashing]));
-        setTimeout(() => {
-          setFlashingAssets(prev => {
-            const updated = new Set(prev);
-            newFlashing.forEach(id => updated.delete(id));
-            return updated;
-          });
-        }, 500);
-      }
+    };
+  }, [arenaId, unsubscribeFromArena]);
+
+  // Track if user was on page during active arena (for smooth transition)
+  useEffect(() => {
+    if (arena?.status === ArenaStatus.Active && !wasLiveDuringArena) {
+      setWasLiveDuringArena(true);
     }
-  }, [streamVolatility, arena?.status, useIndexerPrices, isLastTenSeconds, lastStreamUpdateTime]);
+  }, [arena?.status, wasLiveDuringArena]);
+
+  // Countdown timer - runs every second, starts polling when < 10 seconds
+  // Also implements "slowing" countdown that adds ~10 seconds over 3 minutes
+  useEffect(() => {
+    if (!arena || arena.status !== ArenaStatus.Active || !arena.endTimestamp) {
+      setEndCountdown(null);
+      setDisplayCountdown(null);
+      return;
+    }
+
+    const endTime = new Date(arena.endTimestamp!).getTime();
+    const startTime = arena.startTimestamp ? new Date(arena.startTimestamp).getTime() : null;
+    
+    // Calculate total duration once
+    if (startTime && totalDurationRef.current === null) {
+      totalDurationRef.current = endTime - startTime;
+      countdownStartTimeRef.current = Date.now();
+    }
+
+    const updateCountdown = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, endTime - now);
+      setEndCountdown(remaining);
+      
+      // Calculate slowed display countdown
+      // Adds ~10 seconds over the full duration (progressively slower as we approach 0)
+      // This makes it feel like time slows down dramatically near the end
+      if (totalDurationRef.current && totalDurationRef.current > 0) {
+        const totalDuration = totalDurationRef.current;
+        const elapsed = totalDuration - remaining;
+        const progress = Math.min(1, elapsed / totalDuration); // 0 to 1
+        
+        // Add up to 10 seconds total, distributed with quadratic easing
+        // extraTimeToAdd grows faster as we approach end (more dramatic slowdown)
+        const maxExtraTime = 10000; // 10 seconds total to add
+        const extraTimeToAdd = maxExtraTime * Math.pow(progress, 2);
+        
+        // Display shows more time remaining than actual
+        const displayRemaining = Math.max(0, remaining + extraTimeToAdd);
+        setDisplayCountdown(displayRemaining);
+      } else {
+        setDisplayCountdown(remaining);
+      }
+      
+      // Start polling when countdown < 10 seconds
+      if (remaining <= 10000 && remaining > 0 && !hasStartedPollingRef.current) {
+        console.log('[Arena] Countdown < 10s - starting polling');
+        hasStartedPollingRef.current = true;
+        setIsPolling(true);
+      }
+    };
+
+    // Initial calculation
+    updateCountdown();
+    
+    // Update every second
+    const timer = setInterval(updateCountdown, 1000);
+    
+    return () => clearInterval(timer);
+  }, [arena?.status, arena?.endTimestamp, arena?.startTimestamp]);
+
+  // Polling effect for Active arenas (near end) - only runs when isPolling is true
+  // When arena ends, trigger 2-second "ARENA ENDED" banner if user was live
+  useEffect(() => {
+    if (!isPolling || !arenaId) return;
+
+    const pollArena = async () => {
+      try {
+        const response = await fetch(`${INDEXER_URL}/api/v1/arenas/${arenaId}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Check if arena has ended with endPrice
+          if (data.status === ArenaStatus.Ended) {
+            const hasEndPrices = data.arenaAssets?.some((a: ArenaAsset) => a.endPrice && a.endPrice > 0);
+            
+            if (hasEndPrices && wasLiveDuringArena) {
+              // User was live - show smooth transition
+              console.log('[Arena] Arena ended with endPrices - showing 2s transition');
+              setEndedArenaData(data); // Store for transition display
+              setShowArenaEndedBanner(true);
+              setIsPolling(false);
+              hasStartedPollingRef.current = false;
+              
+              // After 2 seconds, update to final ended state
+              setTimeout(() => {
+                setShowArenaEndedBanner(false);
+                setEndedArenaData(null);
+                setArena(data);
+              }, 2000);
+            } else {
+              // User wasn't live or no endPrices yet - just update directly
+              console.log('[Arena] Arena ended - updating directly');
+              setArena(data);
+              setIsPolling(false);
+              hasStartedPollingRef.current = false;
+            }
+          } else {
+            // Still active, just update the data
+            setArena(data);
+          }
+        }
+      } catch (err) {
+        console.error('[Arena] Polling error:', err);
+      }
+    };
+
+    // Poll every 2 seconds
+    pollingIntervalRef.current = setInterval(pollArena, 2000);
+    
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [isPolling, arenaId, wasLiveDuringArena]);
+
+  // Polling effect for Waiting arenas - poll until Active with startPrice
+  useEffect(() => {
+    if (!arena || !arenaId) return;
+    
+    // Start polling when arena is Waiting
+    if (arena.status === ArenaStatus.Waiting && !isWaitingPolling) {
+      console.log('[Arena] Arena is Waiting - starting poll for Active status');
+      setIsWaitingPolling(true);
+    }
+    
+    // Stop polling when arena becomes Active (with startPrice) or ends
+    if (arena.status !== ArenaStatus.Waiting && isWaitingPolling) {
+      console.log('[Arena] Arena no longer Waiting - stopping poll');
+      setIsWaitingPolling(false);
+    }
+  }, [arena?.status, arenaId, isWaitingPolling]);
+
+  // Waiting status polling interval
+  useEffect(() => {
+    if (!isWaitingPolling || !arenaId) return;
+
+    const pollWaitingArena = async () => {
+      try {
+        const response = await fetch(`${INDEXER_URL}/api/v1/arenas/${arenaId}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Check if arena has become Active with startPrice
+          if (data.status === ArenaStatus.Active) {
+            const hasStartPrices = data.arenaAssets?.some((a: ArenaAsset) => a.startPrice && a.startPrice > 0);
+            if (hasStartPrices) {
+              console.log('[Arena] Arena now Active with startPrices - updating');
+              setArena(data);
+              setIsWaitingPolling(false);
+              
+              // Fetch user profiles for players
+              if (data.playerEntries) {
+                const wallets = data.playerEntries.map((p: PlayerEntry) => p.playerWallet);
+                fetchUserProfiles(wallets);
+              }
+            } else {
+              // Active but no startPrices yet, keep polling
+              console.log('[Arena] Arena Active but no startPrices yet');
+            }
+          } else if (data.status !== ArenaStatus.Waiting) {
+            // Status changed to something other than Active (Ended/Canceled)
+            setArena(data);
+            setIsWaitingPolling(false);
+          }
+        }
+      } catch (err) {
+        console.error('[Arena] Waiting poll error:', err);
+      }
+    };
+
+    // Poll every 3 seconds for waiting status
+    waitingPollingRef.current = setInterval(pollWaitingArena, 3000);
+    
+    // Also poll immediately
+    pollWaitingArena();
+    
+    return () => {
+      if (waitingPollingRef.current) {
+        clearInterval(waitingPollingRef.current);
+        waitingPollingRef.current = null;
+      }
+    };
+  }, [isWaitingPolling, arenaId]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      if (waitingPollingRef.current) {
+        clearInterval(waitingPollingRef.current);
+      }
+    };
+  }, []);
 
   if (!user) return null;
 
-  // Get status badge
+  // Helper functions
   const getStatusBadge = (status: number, statusLabel: string) => {
     const styles: Record<number, string> = {
       [ArenaStatus.Uninitialized]: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
@@ -402,7 +439,6 @@ function ArenaDetailPage() {
     );
   };
 
-  // Format time
   const formatTime = (timestamp: string | null) => {
     if (!timestamp) return '—';
     const date = new Date(timestamp);
@@ -414,38 +450,98 @@ function ArenaDetailPage() {
     });
   };
 
-  // Format wallet address
   const formatWallet = (wallet: string) => {
     return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
   };
 
-  // Check if player is winner
   const isWinner = (entry: PlayerEntry) => {
     if (!arena || arena.winningAsset === null) return false;
     return entry.assetIndex === arena.winningAsset;
   };
 
-  // Calculate winnings (90% of total pool in SOL goes to winner)
-  const calculateWinnings = () => {
-    if (!arena) return 0;
-    return (arena.totalPoolSol || 0) * 0.9;
-  };
-
-  // Get asset volatility from real-time data (same as charts use)
+  // Get volatility - use ended data during transition, Pyth for Active, indexed for Ended
   const getAssetVolatility = (assetIndex: number): number => {
-    return volatilityData.get(assetIndex) ?? 0;
+    // During "ARENA ENDED" banner transition, use the final volatility from ended data
+    if (showArenaEndedBanner && endedArenaData) {
+      const asset = endedArenaData.arenaAssets?.find(a => a.assetIndex === assetIndex);
+      if (asset?.priceMovementRaw) {
+        return parseFloat(asset.priceMovementRaw) / 1e10;
+      }
+    }
+    
+    // For Active arenas, use Pyth real-time data if available
+    if (arena?.status === ArenaStatus.Active && pythVolatility.length > 0) {
+      const pythData = pythVolatility.find(p => p.assetIndex === assetIndex);
+      if (pythData) {
+        return pythData.volatility;
+      }
+    }
+    
+    // For Ended arenas or fallback, use indexed data
+    // Solana stores: priceMovementRaw = ((end - start) / start) * 1e12 (ratio with 12 decimals)
+    // To get percentage: ratio * 100 = priceMovementRaw / 1e12 * 100 = priceMovementRaw / 1e10
+    const asset = arena?.arenaAssets?.find(a => a.assetIndex === assetIndex);
+    if (!asset) return 0;
+    
+    if (asset.priceMovementRaw) {
+      return parseFloat(asset.priceMovementRaw) / 1e10; // Divide by 1e10 to get percentage
+    } else if (asset.priceMovementBps !== undefined) {
+      return asset.priceMovementBps / 100;
+    }
+    return 0;
   };
 
-  // Sort participants by volatility (descending - highest volatility first)
+  // Get current price - use endPrice during transition banner, otherwise Pyth stream
+  const getAssetCurrentPrice = (assetIndex: number): number | null => {
+    // During "ARENA ENDED" banner transition, use endPrice as currentPrice
+    if (showArenaEndedBanner && endedArenaData) {
+      const asset = endedArenaData.arenaAssets?.find(a => a.assetIndex === assetIndex);
+      if (asset?.endPrice) {
+        return asset.endPrice;
+      }
+    }
+    
+    // Otherwise use Pyth stream data
+    if (pythVolatility.length > 0) {
+      const pythData = pythVolatility.find(p => p.assetIndex === assetIndex);
+      if (pythData) {
+        return pythData.currentPrice;
+      }
+    }
+    return null;
+  };
+
+  const getAssetStartPrice = (assetIndex: number): number | null => {
+    const asset = arena?.arenaAssets?.find(a => a.assetIndex === assetIndex);
+    return asset?.startPrice ?? null;
+  };
+
+  const getAssetEndPrice = (assetIndex: number): number | null => {
+    const asset = arena?.arenaAssets?.find(a => a.assetIndex === assetIndex);
+    return asset?.endPrice ?? null;
+  };
+
+  const formatPrice = (price: number | null): string => {
+    if (price === null || price === undefined) return '-';
+    
+    // For prices >= $100, show 2 decimals
+    if (price >= 100) return `$${price.toFixed(2)}`;
+    // For prices >= $1, show 4 decimals
+    if (price >= 1) return `$${price.toFixed(4)}`;
+    // For prices >= $0.01, show 6 decimals to capture small changes
+    if (price >= 0.01) return `$${price.toFixed(6)}`;
+    // For very small prices, show 8 decimals
+    return `$${price.toFixed(8)}`;
+  };
+
   const sortByVolatility = (entries: PlayerEntry[]): PlayerEntry[] => {
     return [...entries].sort((a, b) => {
       const volA = getAssetVolatility(a.assetIndex);
       const volB = getAssetVolatility(b.assetIndex);
-      return volB - volA; // Higher volatility = better ranking
+      return volB - volA;
     });
   };
 
-  // Get winners and losers
   const getWinners = () => {
     if (!arena || arena.winningAsset === null) return [];
     return arena.playerEntries.filter(p => p.assetIndex === arena.winningAsset);
@@ -453,104 +549,72 @@ function ArenaDetailPage() {
 
   const getLosers = () => {
     if (!arena || arena.winningAsset === null) return arena?.playerEntries || [];
-    // Sort losers by volatility (2nd place, 3rd place, etc.)
     return sortByVolatility(arena.playerEntries.filter(p => p.assetIndex !== arena.winningAsset));
   };
 
-  // Get all participants sorted by standing (for live arenas)
   const getSortedParticipants = (): PlayerEntry[] => {
     if (!arena?.playerEntries) return [];
     return sortByVolatility(arena.playerEntries);
   };
 
-  // Get the leading asset (highest volatility from real-time data)
   const getLeadingAsset = (): number | null => {
-    if (volatilityData.size === 0) return null;
+    if (!arena?.arenaAssets || arena.arenaAssets.length === 0) return null;
     
     let maxVolatility = -Infinity;
     let leadingAssetIndex: number | null = null;
     
-    volatilityData.forEach((volatility, assetIndex) => {
+    arena.arenaAssets.forEach(asset => {
+      const volatility = getAssetVolatility(asset.assetIndex);
       if (volatility > maxVolatility) {
         maxVolatility = volatility;
-        leadingAssetIndex = assetIndex;
+        leadingAssetIndex = asset.assetIndex;
       }
     });
     
     return leadingAssetIndex;
   };
 
-  // Get asset prices from arenaAssets (for ended/canceled arenas)
-  const getAssetPrices = (assetIndex: number): { startPrice: number | null; endPrice: number | null } => {
-    const asset = arena?.arenaAssets?.find(a => a.assetIndex === assetIndex);
-    return {
-      startPrice: asset?.startPrice ?? null,
-      endPrice: asset?.endPrice ?? null,
-    };
-  };
-
-  // Format price for display
-  const formatPrice = (price: number | null): string => {
-    if (price === null) return '-';
-    if (price >= 1) return `$${price.toFixed(2)}`;
-    if (price >= 0.01) return `$${price.toFixed(4)}`;
-    return `$${price.toFixed(8)}`;
-  };
-
   // Player card component
-  const PlayerCard = ({ entry, showVolatility = true }: { entry: PlayerEntry; showVolatility?: boolean }) => {
+  const PlayerCard = ({ entry, showPrices = false }: { entry: PlayerEntry; showPrices?: boolean }) => {
     const profile = userProfiles[entry.playerWallet];
     const isCurrentUser = publicKey && entry.playerWallet === publicKey.toBase58();
     const playerIsWinner = isWinner(entry);
-    const volatilityPercent = getAssetVolatility(entry.assetIndex); // Already in percent from API
-    const assetStartPrice = startPrices.get(entry.assetIndex) ?? null;
+    const volatilityPercent = getAssetVolatility(entry.assetIndex);
+    const startPrice = getAssetStartPrice(entry.assetIndex);
+    const endPrice = getAssetEndPrice(entry.assetIndex);
+    const currentPrice = getAssetCurrentPrice(entry.assetIndex);
     
-    // Check if this player's token is currently leading
     const leadingAsset = getLeadingAsset();
     const isLeading = leadingAsset !== null && entry.assetIndex === leadingAsset && !playerIsWinner;
-    
-    // Flash effects from real-time stream
-    const isFlashing = flashingAssets.has(entry.assetIndex);
-    const isNewLeaderAsset = newLeader === entry.assetIndex;
     
     return (
       <div 
         className={`relative backdrop-blur-xl rounded-xl border overflow-hidden transition-all hover:scale-[1.01] ${
-          isNewLeaderAsset
-            ? 'bg-gradient-to-r from-amber-500/30 to-yellow-500/20 border-amber-400 shadow-lg shadow-amber-500/30 animate-pulse'
-            : playerIsWinner 
-              ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10' 
-              : isLeading
-                ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40'
-                : isCurrentUser 
-                  ? 'bg-gradient-to-r from-white/8 to-white/4 border-white/20' 
-                  : 'bg-white/5 border-white/10 hover:border-white/20'
+          playerIsWinner 
+            ? 'bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10' 
+            : isLeading
+              ? 'bg-gradient-to-r from-sky-500/10 to-cyan-500/5 border-sky-500/40'
+              : isCurrentUser 
+                ? 'bg-gradient-to-r from-white/8 to-white/4 border-white/20' 
+                : 'bg-white/5 border-white/10 hover:border-white/20'
         }`}
       >
-        {/* New leader celebration effect */}
-        {isNewLeaderAsset && (
-          <>
-            <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/30 to-amber-500/0 animate-[shimmer_1s_ease-in-out_infinite] pointer-events-none" />
-            <span className="absolute top-2 right-2 text-lg animate-bounce">🔥</span>
-          </>
-        )}
-        {/* Winner badge for ended arenas */}
+        {/* Winner badge */}
         {playerIsWinner && arena?.status === ArenaStatus.Ended && (
           <div className="absolute top-0 left-0 bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 px-4 py-1.5 text-xs font-bold rounded-br-xl shadow-lg">
             WINNER
           </div>
         )}
         
-        {/* Winning badge for live/active arenas (currently leading) */}
+        {/* Leading badge for active arenas */}
         {!playerIsWinner && isLeading && arena?.status === ArenaStatus.Active && (
           <div className="absolute top-0 left-0 bg-gradient-to-r from-sky-400 to-cyan-400 text-gray-900 px-4 py-1.5 text-xs font-bold rounded-br-xl shadow-lg">
-            WINNING
+            LEADING
           </div>
         )}
         
         <div className="p-4">
           <div className="flex items-center gap-4">
-            
             {/* Avatar */}
             {profile?.twitterProfilePicture ? (
               <Image
@@ -593,63 +657,61 @@ function ArenaDetailPage() {
                 </div>
               )}
             </div>
-            
-            {/* Volatility (for live/active arenas) */}
-            {showVolatility && arena?.status === ArenaStatus.Active && (
+
+            {/* Prices (for ended arenas) */}
+            {showPrices && (arena?.status === ArenaStatus.Ended || arena?.status === ArenaStatus.Canceled) && (
               <div className="flex gap-4">
-                {/* Start Price */}
-                {assetStartPrice !== null && (
-                  <div className="text-center px-2">
-                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Start</p>
-                    <p className="text-sm font-medium text-white/70">{formatPrice(assetStartPrice)}</p>
-                  </div>
-                )}
-                {/* Volatility */}
-                <div className="text-center px-3">
-                  <p className={`font-bold transition-all duration-300 ${
-                    isFlashing 
-                      ? 'text-white text-xl scale-110' 
-                      : `text-lg ${volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'}`
+                <div className="text-center px-2">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Start</p>
+                  <p className="text-sm font-medium text-white/70">{formatPrice(startPrice)}</p>
+                </div>
+                <div className="text-center px-2">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">End</p>
+                  <p className="text-sm font-medium text-white/70">{formatPrice(endPrice)}</p>
+                </div>
+                <div className="text-center px-2">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Change</p>
+                  <p className={`text-sm font-bold ${
+                    volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
                   }`}>
                     {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
                   </p>
-                  <div className="flex items-center justify-center gap-1">
-                    <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
-                    {isStreamingVolatility && !useIndexerPrices && (
+                </div>
+              </div>
+            )}
+
+            {/* Real-time volatility and prices (for active arenas) */}
+            {arena?.status === ArenaStatus.Active && (
+              <div className="flex gap-3">
+                {/* Start Price */}
+                <div className="text-center px-2">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Start</p>
+                  <p className="text-sm font-medium text-white/70">{formatPrice(startPrice)}</p>
+                </div>
+                {/* Current Price (from Pyth) */}
+                <div className="text-center px-2">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1 flex items-center justify-center gap-1">
+                    Current
+                    {isStreaming && (
                       <span className="relative flex h-1.5 w-1.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
                       </span>
                     )}
-                  </div>
+                  </p>
+                  <p className="text-sm font-medium text-white">{formatPrice(currentPrice)}</p>
+                </div>
+                {/* Volatility */}
+                <div className="text-center px-2">
+                  <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Change</p>
+                  <p className={`text-sm font-bold ${
+                    volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
+                  }`}>
+                    {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
+                  </p>
                 </div>
               </div>
             )}
-
-            {/* Start/End Prices (for ended/canceled arenas - only after transition completes) */}
-            {(displayedStatus === ArenaStatus.Ended || displayedStatus === ArenaStatus.Canceled) && (() => {
-              const prices = getAssetPrices(entry.assetIndex);
-              return (
-                <div className="flex gap-4">
-                  <div className="text-center px-2">
-                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Start</p>
-                    <p className="text-sm font-medium text-white/70">{formatPrice(prices.startPrice)}</p>
-                  </div>
-                  <div className="text-center px-2">
-                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">End</p>
-                    <p className="text-sm font-medium text-white/70">{formatPrice(prices.endPrice)}</p>
-                  </div>
-                  <div className="text-center px-2">
-                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Change</p>
-                    <p className={`text-sm font-bold ${
-                      volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'
-                    }`}>
-                      {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
-                    </p>
-                  </div>
-                </div>
-              );
-            })()}
             
             {/* Token Symbol */}
             <div className="text-right">
@@ -664,17 +726,9 @@ function ArenaDetailPage() {
                   {entry.assetSymbol}
                 </span>
               </div>
-              {playerIsWinner && arena?.status === ArenaStatus.Ended && (
+              {(arena?.status === ArenaStatus.Ended) && (
                 <p className={`text-xs mt-2 ${
                   volatilityPercent > 0 ? 'text-green-400/80' : volatilityPercent < 0 ? 'text-red-400/80' : 'text-white/30'
-                }`}>
-                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}% volatility
-                </p>
-              )}
-              {/* Show volatility for ended arenas (non-winners) */}
-              {arena?.status === ArenaStatus.Ended && !playerIsWinner && (
-                <p className={`text-sm mt-2 ${
-                  volatilityPercent > 0 ? 'text-green-400/70' : volatilityPercent < 0 ? 'text-red-400/70' : 'text-white/30'
                 }`}>
                   {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
                 </p>
@@ -688,15 +742,12 @@ function ArenaDetailPage() {
 
   return (
     <div className={`min-h-screen bg-[#222732] ${aceOfSwords.variable}`}>
-      {/* Background - Solid with gradient light effects */}
+      {/* Background */}
       <div className="fixed inset-0 pointer-events-none">
-        {/* Light blue gradient orbs */}
         <div className="absolute top-[-15%] right-[5%] w-[700px] h-[700px] bg-cyan-400/15 rounded-full blur-[150px]" />
         <div className="absolute top-[30%] left-[-10%] w-[600px] h-[600px] bg-sky-400/12 rounded-full blur-[130px]" />
         <div className="absolute bottom-[0%] right-[30%] w-[500px] h-[500px] bg-blue-400/10 rounded-full blur-[120px]" />
         <div className="absolute top-[50%] left-[40%] w-[400px] h-[400px] bg-cyan-500/8 rounded-full blur-[140px]" />
-        
-        {/* Soft vignette */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_0%,_rgba(34,39,50,0.5)_100%)]" />
       </div>
       
@@ -750,14 +801,16 @@ function ArenaDetailPage() {
             </div>
           ) : arena && (
             <>
-              {/* Starting Soon Banner - for Waiting arenas */}
+              {/* Starting Soon Banner */}
               {arena.status === ArenaStatus.Waiting && (
-                <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/20 backdrop-blur-xl rounded-2xl border border-amber-500/30 p-6 mb-6 animate-pulse">
+                <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/20 backdrop-blur-xl rounded-2xl border border-amber-500/30 p-6 mb-6">
                   <div className="flex items-center justify-center gap-4">
-                    {/* <svg className="w-8 h-8 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg> */}
+                    {isWaitingPolling && (
+                      <svg className="w-8 h-8 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    )}
                     <div className="text-center">
                       <h2 
                         className="text-2xl text-amber-400 tracking-wider mb-1"
@@ -766,15 +819,34 @@ function ArenaDetailPage() {
                         ARENA STARTING SOON
                       </h2>
                       <p className="text-amber-400/70 text-sm">
-                        The arena will begin automatically. Please wait...
+                        Waiting for arena to begin...
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Arena Ending Banner - show when countdown reached 0 or in transition */}
-              {(isArenaEnding || pendingEndedTransition) && (
+              {/* Arena Ended Banner - 2 second transition showing final volatility */}
+              {showArenaEndedBanner && (
+                <div className="bg-gradient-to-r from-amber-500/30 via-yellow-500/20 to-amber-500/30 backdrop-blur-xl rounded-2xl border border-amber-500/50 p-6 mb-6">
+                  <div className="flex items-center justify-center gap-4">
+                    <svg className="w-10 h-10 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="text-center">
+                      <h2 className={`text-3xl text-amber-400 tracking-wider mb-1 ${aceOfSwords.className}`}>
+                        ARENA ENDED
+                      </h2>
+                      <p className="text-amber-400/70 text-sm">
+                        Final results locked on-chain
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Final Seconds Banner - show when countdown < 10 seconds (polling active) */}
+              {isPolling && !showArenaEndedBanner && (
                 <div className="bg-gradient-to-r from-orange-500/20 via-amber-500/10 to-orange-500/20 backdrop-blur-xl rounded-2xl border border-orange-500/30 p-6 mb-6 animate-pulse">
                   <div className="flex items-center justify-center gap-4">
                     <svg className="w-8 h-8 text-orange-400 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -782,15 +854,11 @@ function ArenaDetailPage() {
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
                     <div className="text-center">
-                      <h2 
-                        className={`text-2xl text-orange-400 tracking-wider mb-1 ${aceOfSwords.className}`}
-                      >
-                        {pendingEndedTransition ? 'FINALIZING RESULTS' : 'ARENA ENDING'}
+                      <h2 className={`text-2xl text-orange-400 tracking-wider mb-1 ${aceOfSwords.className}`}>
+                        FINAL SECONDS
                       </h2>
                       <p className="text-orange-400/70 text-sm">
-                        {pendingEndedTransition 
-                          ? 'Calculating winner and final standings...' 
-                          : 'Final prices are being locked in...'}
+                        Waiting for final prices to be locked...
                       </p>
                     </div>
                   </div>
@@ -799,7 +867,6 @@ function ArenaDetailPage() {
 
               {/* Header */}
               <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 mb-6 relative">
-                {/* Decorative glow - with overflow clipping */}
                 <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
                   <div className="absolute -top-20 -right-20 w-40 h-40 bg-sky-500/15 rounded-full blur-3xl" />
                   <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl" />
@@ -815,8 +882,14 @@ function ArenaDetailPage() {
                         ARENA #{arena.arenaId}
                       </h1>
                       {getStatusBadge(
-                        displayedStatus ?? arena.status, 
-                        isArenaEnding || pendingEndedTransition ? 'Ending' : arena.statusLabel
+                        arena.status, 
+                        showArenaEndedBanner 
+                          ? 'Ended' 
+                          : isPolling 
+                            ? 'Final Seconds' 
+                            : isWaitingPolling && arena.status === ArenaStatus.Waiting
+                              ? 'Starting...'
+                              : arena.statusLabel
                       )}
                     </div>
                     <p className="text-white/30 text-xs font-mono bg-white/5 px-2 py-1 rounded inline-block">{arena.pda}</p>
@@ -834,7 +907,6 @@ function ArenaDetailPage() {
                       {(arena.totalPoolSol || 0).toFixed(2)} SOL
                     </p>
                     
-                    {/* Tooltip */}
                     <div className="absolute bottom-full right-0 mb-2 opacity-0 group-hover/pool:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999]">
                       <div className="bg-zinc-900/95 backdrop-blur-md rounded-lg px-3 py-2 border border-zinc-700/80 shadow-xl whitespace-nowrap">
                         <p className="text-white text-xs">≈ ${(arena.totalPoolUsd || 0).toFixed(2)} USD</p>
@@ -859,19 +931,35 @@ function ArenaDetailPage() {
                     <p className="text-sm font-medium text-white/70">{formatTime(arena.startTimestamp)}</p>
                   </div>
                   <div className={`backdrop-blur-sm rounded-xl p-4 text-center border ${
-                    isArenaEnding || pendingEndedTransition
-                      ? 'bg-amber-500/10 border-amber-500/30'
-                      : 'bg-white/5 border-white/5'
+                    showArenaEndedBanner 
+                      ? 'bg-gradient-to-r from-amber-500/20 to-yellow-500/10 border-amber-500/40' 
+                      : isPolling 
+                        ? 'bg-amber-500/10 border-amber-500/30' 
+                        : 'bg-white/5 border-white/5'
                   }`}>
-                    {displayedStatus === ArenaStatus.Active || displayedStatus === null ? (
-                      // Show countdown for active arenas
-                      isArenaEnding || pendingEndedTransition ? (
-                        <p className={`text-sm font-medium text-orange-400 animate-pulse ${aceOfSwords.className}`}>ARENA ENDING...</p>
-                      ) : endCountdown !== null ? (
+                    {/* Show arena ended transition */}
+                    {showArenaEndedBanner ? (
+                      <div className="flex flex-col items-center">
+                        <svg className="w-6 h-6 text-amber-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className={`text-sm font-medium text-amber-400 ${aceOfSwords.className}`}>
+                          ENDED
+                        </p>
+                      </div>
+                    ) : arena.status === ArenaStatus.Active ? (
+                      isPolling ? (
+                        <div className="flex flex-col items-center">
+                          <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin mb-2" />
+                          <p className={`text-sm font-medium text-orange-400 ${aceOfSwords.className}`}>
+                            FINAL SECONDS
+                          </p>
+                        </div>
+                      ) : displayCountdown !== null ? (
                         <>
                           <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Ends In</p>
                           <p className={`text-xl font-bold text-amber-400 tabular-nums ${aceOfSwords.className}`}>
-                            {Math.floor(endCountdown / 60000).toString().padStart(2, '0')}:{Math.floor((endCountdown % 60000) / 1000).toString().padStart(2, '0')}
+                            {Math.floor(displayCountdown / 60000).toString().padStart(2, '0')}:{Math.floor((displayCountdown % 60000) / 1000).toString().padStart(2, '0')}
                           </p>
                         </>
                       ) : (
@@ -888,51 +976,22 @@ function ArenaDetailPage() {
                     )}
                   </div>
                 </div>
-                
               </div>
 
-              {/* Chart Section - Show VolatilityChart for Active arenas (including ending/transition) */}
-              {(displayedStatus === ArenaStatus.Active || displayedStatus === null) && arena.status !== ArenaStatus.Waiting && (
+              {/* Chart Section - HexArenaChart for Ended/Canceled arenas */}
+              {(arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) && (
                 <div className="mb-6">
-                  {/* Header */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-                    <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Live Battle</h3>
-                    {useIndexerPrices && (
-                      <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-500/20 text-orange-400 rounded-full border border-orange-500/30">
-                        FINAL PRICES
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Volatility Chart - pass volatilityData for consistency with participant list */}
-                  <VolatilityChart 
-                    arenaId={arena.arenaId} 
-                    height={350} 
-                    refreshInterval={5000}
-                    useIndexerPrices={useIndexerPrices}
-                    externalVolatilityData={useIndexerPrices ? volatilityData : undefined}
-                    startPrices={startPrices}
-                  />
-                </div>
-              )}
-
-              {/* Chart Section - Show HexArenaChart for Ended/Canceled arenas */}
-              {(displayedStatus === ArenaStatus.Ended || displayedStatus === ArenaStatus.Canceled) && (
-                <div className="mb-6">
-                  {/* Header */}
                   <div className="flex items-center gap-2 mb-4">
                     <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Final Results</h3>
                   </div>
 
-                  {/* Hex Chart - Pass final data from arenaAssets */}
                   <div className="flex justify-center overflow-x-auto pb-2">
                     <HexArenaChart 
                       size={550} 
                       data={arena.arenaAssets?.map(asset => ({
                         symbol: asset.assetSymbol,
                         assetIndex: asset.assetIndex,
-                        volatility: asset.priceMovementRaw ? parseFloat(asset.priceMovementRaw) / 1e12 : 0,
+                        volatility: asset.priceMovementRaw ? parseFloat(asset.priceMovementRaw) / 1e10 : 0, // 1e10 to get percentage
                         startPrice: asset.startPrice,
                         endPrice: asset.endPrice,
                       })) || []}
@@ -944,75 +1003,66 @@ function ArenaDetailPage() {
               {/* Participants */}
               <div className="space-y-8 mt-10 pb-8">
                 {/* Winners Section - Only for ended arenas */}
-                {displayedStatus === ArenaStatus.Ended && getWinners().length > 0 && (
+                {arena.status === ArenaStatus.Ended && getWinners().length > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <span className="text-lg">🏆</span>
-                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
-                        Winners
-                      </h2>
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">Winners</h2>
                       <span className="text-white/40">({getWinners().length})</span>
                     </div>
                     <div className="space-y-3">
                       {getWinners().map((entry) => (
-                        <PlayerCard key={entry.playerWallet} entry={entry} />
+                        <PlayerCard key={entry.playerWallet} entry={entry} showPrices={true} />
                       ))}
                     </div>
                   </section>
                 )}
 
-                {/* Live Standings - For active arenas (including ending/transition) */}
-                {(displayedStatus === ArenaStatus.Active || displayedStatus === null) && arena.status !== ArenaStatus.Waiting && arena.playerCount > 0 && (
+                {/* Live Standings - For active arenas */}
+                {arena.status === ArenaStatus.Active && arena.playerCount > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
                       <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
-                        Live Standings
-                      </h2>
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">Live Standings</h2>
                       <span className="text-white/40">({arena.playerCount})</span>
-                      <span className="text-white/30 text-xs ml-2">Sorted by volatility</span>
+                      {isStreaming && (
+                        <div className="flex items-center gap-2 px-2 py-1 bg-green-500/20 rounded-lg border border-green-500/30">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                          </span>
+                          <span className="text-green-400 text-xs font-medium">Pyth Live</span>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-3">
                       {getSortedParticipants().map((entry) => (
-                        <PlayerCard 
-                          key={entry.playerWallet} 
-                          entry={entry} 
-                          showVolatility={true}
-                        />
+                        <PlayerCard key={entry.playerWallet} entry={entry} showPrices={false} />
                       ))}
                     </div>
                   </section>
                 )}
 
                 {/* Other Participants - For ended arenas (losers) */}
-                {displayedStatus === ArenaStatus.Ended && getLosers().length > 0 && (
+                {arena.status === ArenaStatus.Ended && getLosers().length > 0 && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
-                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
-                        Other Participants
-                      </h2>
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">Other Participants</h2>
                       <span className="text-white/40">({getLosers().length})</span>
-                      <span className="text-white/30 text-xs ml-2">Sorted by volatility</span>
                     </div>
                     <div className="space-y-3">
                       {getLosers().map((entry) => (
-                        <PlayerCard 
-                          key={entry.playerWallet} 
-                          entry={entry} 
-                          showVolatility={false}
-                        />
+                        <PlayerCard key={entry.playerWallet} entry={entry} showPrices={true} />
                       ))}
                     </div>
                   </section>
                 )}
 
-                {/* Waiting participants - For waiting arenas */}
+                {/* Waiting participants */}
                 {arena.status === ArenaStatus.Waiting && (
                   <section>
                     <div className="flex items-center gap-3 mb-5">
-                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">
-                        Participants
-                      </h2>
+                      <h2 className="text-lg font-bold text-white uppercase tracking-wider">Participants</h2>
                       <span className="text-white/40">({arena.playerCount})</span>
                     </div>
                     
@@ -1029,11 +1079,7 @@ function ArenaDetailPage() {
                     ) : (
                       <div className="space-y-3">
                         {arena.playerEntries.map((entry) => (
-                          <PlayerCard 
-                            key={entry.playerWallet} 
-                            entry={entry} 
-                            showVolatility={false}
-                          />
+                          <PlayerCard key={entry.playerWallet} entry={entry} showPrices={false} />
                         ))}
                       </div>
                     )}
@@ -1055,4 +1101,3 @@ export default function ArenaDetail() {
     </ProtectedRoute>
   );
 }
-

@@ -35,7 +35,6 @@ interface VolatilityChartProps {
   enableStreaming?: boolean; // Set to false for ended/canceled arenas
   useIndexerPrices?: boolean; // When true (last 10 seconds), use indexer instead of Pyth stream
   externalVolatilityData?: Map<number, number>; // Optional: pass volatility data from parent (for consistency with participant list)
-  startPrices?: Map<number, number>; // Optional: pass startPrice map from parent (assetIndex -> startPrice)
 }
 
 interface ChampionData {
@@ -59,12 +58,12 @@ export default function VolatilityChart({
   refreshInterval = 5000,
   enableStreaming = true,
   useIndexerPrices = false,
-  externalVolatilityData,
-  startPrices: externalStartPrices
+  externalVolatilityData
 }: VolatilityChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
+  const animatedPositionsRef = useRef<Record<string, number>>({});
   
   // Use shared Pyth stream context (only if streaming is enabled AND not using indexer prices)
   const shouldStream = enableStreaming && !useIndexerPrices;
@@ -77,7 +76,7 @@ export default function VolatilityChart({
   const [viewMode, setViewMode] = useState<'live' | 'history'>('live');
   const [historyIndex, setHistoryIndex] = useState(0);
   const [maxHistoryLength, setMaxHistoryLength] = useState(0);
-  const [animatedPositions, setAnimatedPositions] = useState<Record<string, number>>({}); 
+  const [animationTrigger, setAnimationTrigger] = useState(0); // Used to trigger re-render after animation completes
   const [historyData, setHistoryData] = useState<Record<string, VolatilityPoint[]>>({});
 
   // Initial data fetch from indexer (to get start prices and participant info)
@@ -85,26 +84,15 @@ export default function VolatilityChart({
     try {
       const response = await indexerApi.getArenaVolatility(arenaId, '1m');
       
-      // Use external startPrices if provided, otherwise use from API response
-      const getStartPrice = (assetIndex: number, defaultStartPrice: number): number => {
-        if (externalStartPrices && externalStartPrices.has(assetIndex)) {
-          return externalStartPrices.get(assetIndex)!;
-        }
-        return defaultStartPrice;
-      };
-      
       // Subscribe to Pyth stream with ALL tokens (not just those with history)
       // This ensures we subscribe even when arena just started and has no price history yet
       // Don't subscribe if using indexer prices (last 10 seconds)
       if (shouldStream && response.assets.length > 0) {
-        const tokens = response.assets.map(asset => {
-          const startPrice = getStartPrice(asset.assetIndex, asset.startPrice);
-          return {
-            symbol: asset.symbol,
-            assetIndex: asset.assetIndex,
-            startPrice: startPrice,
-          };
-        });
+        const tokens = response.assets.map(asset => ({
+          symbol: asset.symbol,
+          assetIndex: asset.assetIndex,
+          startPrice: asset.startPrice,
+        }));
         
         subscribeToArena(arenaId, tokens);
         
@@ -147,7 +135,7 @@ export default function VolatilityChart({
     } finally {
       setIsLoading(false);
     }
-  }, [arenaId, subscribeToArena, shouldStream, champions.length, externalStartPrices]);
+  }, [arenaId, subscribeToArena, shouldStream, champions.length]);
 
   // Unsubscribe from Pyth stream and use external volatility data when switching to indexer prices
   useEffect(() => {
@@ -200,26 +188,22 @@ export default function VolatilityChart({
   // Update champions from stream data (only when NOT using indexer prices)
   useEffect(() => {
     if (streamData.length > 0 && !useIndexerPrices) {
-      setChampions(streamData.map(d => {
-        // Use external startPrice if provided, otherwise use from stream data
-        const startPrice = externalStartPrices?.get(d.assetIndex) ?? d.startPrice;
-        return {
-          symbol: d.symbol,
-          assetIndex: d.assetIndex,
-          color: TOKEN_COLORS[d.symbol] || '#ffffff',
-          currentVolatility: d.volatility,
-          previousVolatility: d.previousVolatility,
-          rank: d.rank,
-          previousRank: d.previousRank,
-          history: historyData[d.symbol] || [],
-          startPrice: startPrice,
-          currentPrice: d.currentPrice,
-          lastUpdateTime: d.lastUpdateTime,
-          justTookLead: d.justTookLead,
-        };
-      }));
+      setChampions(streamData.map(d => ({
+        symbol: d.symbol,
+        assetIndex: d.assetIndex,
+        color: TOKEN_COLORS[d.symbol] || '#ffffff',
+        currentVolatility: d.volatility,
+        previousVolatility: d.previousVolatility,
+        rank: d.rank,
+        previousRank: d.previousRank,
+        history: historyData[d.symbol] || [],
+        startPrice: d.startPrice,
+        currentPrice: d.currentPrice,
+        lastUpdateTime: d.lastUpdateTime,
+        justTookLead: d.justTookLead,
+      })));
     }
-  }, [streamData, historyData, useIndexerPrices, externalStartPrices]);
+  }, [streamData, historyData, useIndexerPrices]);
 
   // Initial load and cleanup
   useEffect(() => {
@@ -248,13 +232,19 @@ export default function VolatilityChart({
     };
   }, [arenaId, refreshInterval, fetchInitialData, unsubscribeFromArena, shouldStream]);
 
-  // Animate positions smoothly
+  // Animate positions smoothly using refs to avoid re-render loops
   useEffect(() => {
     if (champions.length === 0) return;
 
     const targetPositions: Record<string, number> = {};
     champions.forEach(champ => {
       targetPositions[champ.symbol] = champ.currentVolatility;
+    });
+
+    // Capture starting positions from ref
+    const startPositions: Record<string, number> = {};
+    champions.forEach(champ => {
+      startPositions[champ.symbol] = animatedPositionsRef.current[champ.symbol] ?? champ.currentVolatility;
     });
 
     let startTime: number | null = null;
@@ -267,15 +257,19 @@ export default function VolatilityChart({
 
       const newPositions: Record<string, number> = {};
       champions.forEach(champ => {
-        const current = animatedPositions[champ.symbol] ?? champ.currentVolatility;
+        const start = startPositions[champ.symbol];
         const target = targetPositions[champ.symbol];
-        newPositions[champ.symbol] = current + (target - current) * easeOut;
+        newPositions[champ.symbol] = start + (target - start) * easeOut;
       });
 
-      setAnimatedPositions(newPositions);
+      // Update ref (doesn't cause re-render)
+      animatedPositionsRef.current = newPositions;
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
+      } else {
+        // Animation complete - trigger a single re-render to update canvas
+        setAnimationTrigger(prev => prev + 1);
       }
     };
 
@@ -312,11 +306,11 @@ export default function VolatilityChart({
     // Clear with transparent background (glass will be from CSS)
     ctx.clearRect(0, 0, width, height);
 
-    // Calculate range from display positions
+    // Calculate range from display positions (use ref for animated positions)
     const displayPositionsForRange: Record<string, number> = {};
     if (viewMode === 'live') {
       champions.forEach(c => {
-        displayPositionsForRange[c.symbol] = animatedPositions[c.symbol] ?? c.currentVolatility;
+        displayPositionsForRange[c.symbol] = animatedPositionsRef.current[c.symbol] ?? c.currentVolatility;
       });
     } else {
       champions.forEach(c => {
@@ -513,7 +507,7 @@ export default function VolatilityChart({
       ctx.fillText('👑', leaderX, leaderY - circleRadius - 6);
     }
 
-  }, [champions, animatedPositions, height, viewMode, historyIndex, refreshInterval, isStreaming, lastUpdate]);
+  }, [champions, animationTrigger, height, viewMode, historyIndex, refreshInterval, isStreaming, lastUpdate]);
 
   // Handle history slider
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
