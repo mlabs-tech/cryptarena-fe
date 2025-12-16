@@ -35,6 +35,7 @@ interface VolatilityChartProps {
   enableStreaming?: boolean; // Set to false for ended/canceled arenas
   useIndexerPrices?: boolean; // When true (last 10 seconds), use indexer instead of Pyth stream
   externalVolatilityData?: Map<number, number>; // Optional: pass volatility data from parent (for consistency with participant list)
+  startPrices?: Map<number, number>; // Optional: pass startPrice map from parent (assetIndex -> startPrice)
 }
 
 interface ChampionData {
@@ -58,7 +59,8 @@ export default function VolatilityChart({
   refreshInterval = 5000,
   enableStreaming = true,
   useIndexerPrices = false,
-  externalVolatilityData
+  externalVolatilityData,
+  startPrices: externalStartPrices
 }: VolatilityChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -83,15 +85,26 @@ export default function VolatilityChart({
     try {
       const response = await indexerApi.getArenaVolatility(arenaId, '1m');
       
+      // Use external startPrices if provided, otherwise use from API response
+      const getStartPrice = (assetIndex: number, defaultStartPrice: number): number => {
+        if (externalStartPrices && externalStartPrices.has(assetIndex)) {
+          return externalStartPrices.get(assetIndex)!;
+        }
+        return defaultStartPrice;
+      };
+      
       // Subscribe to Pyth stream with ALL tokens (not just those with history)
       // This ensures we subscribe even when arena just started and has no price history yet
       // Don't subscribe if using indexer prices (last 10 seconds)
       if (shouldStream && response.assets.length > 0) {
-        const tokens = response.assets.map(asset => ({
-          symbol: asset.symbol,
-          assetIndex: asset.assetIndex,
-          startPrice: asset.startPrice,
-        }));
+        const tokens = response.assets.map(asset => {
+          const startPrice = getStartPrice(asset.assetIndex, asset.startPrice);
+          return {
+            symbol: asset.symbol,
+            assetIndex: asset.assetIndex,
+            startPrice: startPrice,
+          };
+        });
         
         subscribeToArena(arenaId, tokens);
         
@@ -134,7 +147,7 @@ export default function VolatilityChart({
     } finally {
       setIsLoading(false);
     }
-  }, [arenaId, subscribeToArena, shouldStream, champions.length]);
+  }, [arenaId, subscribeToArena, shouldStream, champions.length, externalStartPrices]);
 
   // Unsubscribe from Pyth stream and use external volatility data when switching to indexer prices
   useEffect(() => {
@@ -187,22 +200,26 @@ export default function VolatilityChart({
   // Update champions from stream data (only when NOT using indexer prices)
   useEffect(() => {
     if (streamData.length > 0 && !useIndexerPrices) {
-      setChampions(streamData.map(d => ({
-        symbol: d.symbol,
-        assetIndex: d.assetIndex,
-        color: TOKEN_COLORS[d.symbol] || '#ffffff',
-        currentVolatility: d.volatility,
-        previousVolatility: d.previousVolatility,
-        rank: d.rank,
-        previousRank: d.previousRank,
-        history: historyData[d.symbol] || [],
-        startPrice: d.startPrice,
-        currentPrice: d.currentPrice,
-        lastUpdateTime: d.lastUpdateTime,
-        justTookLead: d.justTookLead,
-      })));
+      setChampions(streamData.map(d => {
+        // Use external startPrice if provided, otherwise use from stream data
+        const startPrice = externalStartPrices?.get(d.assetIndex) ?? d.startPrice;
+        return {
+          symbol: d.symbol,
+          assetIndex: d.assetIndex,
+          color: TOKEN_COLORS[d.symbol] || '#ffffff',
+          currentVolatility: d.volatility,
+          previousVolatility: d.previousVolatility,
+          rank: d.rank,
+          previousRank: d.previousRank,
+          history: historyData[d.symbol] || [],
+          startPrice: startPrice,
+          currentPrice: d.currentPrice,
+          lastUpdateTime: d.lastUpdateTime,
+          justTookLead: d.justTookLead,
+        };
+      }));
     }
-  }, [streamData, historyData, useIndexerPrices]);
+  }, [streamData, historyData, useIndexerPrices, externalStartPrices]);
 
   // Initial load and cleanup
   useEffect(() => {

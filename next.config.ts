@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 import path from "path";
 
-const PINO_BROWSER_PATH = path.resolve(__dirname, "node_modules/pino/browser.js");
-
 const nextConfig: NextConfig = {
   turbopack: {
     // Turbopack is enabled by default in Next.js 16. Keep an equivalent alias
@@ -10,7 +8,8 @@ const nextConfig: NextConfig = {
     resolveAlias: {
       // Ensure client bundles use pino's browser build (otherwise it pulls in
       // transports -> thread-stream -> dev-only test/bench files).
-      pino: PINO_BROWSER_PATH,
+      // Use module name directly - webpack/turbopack will resolve from node_modules
+      pino: "pino/browser.js",
       tape: path.resolve(__dirname, "src/shims/tape.js"),
     },
   },
@@ -20,7 +19,8 @@ const nextConfig: NextConfig = {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
-      pino: PINO_BROWSER_PATH,
+      // Use module name directly - webpack will resolve from node_modules
+      pino: "pino/browser.js",
       tape: path.resolve(__dirname, "src/shims/tape.js"),
     };
     return config;

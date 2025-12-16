@@ -13,9 +13,10 @@ import BN from 'bn.js';
 import { useAuth } from '@/context/AuthContext';
 import { usePrivyAuth } from '@/context/PrivyContext';
 import { useSignTransaction, useWallets } from '@privy-io/react-auth/solana';
+import { PROGRAM_ID as PROGRAM_ID_STRING } from '@/lib/config';
 
 // Program ID for cryptarena-sol (new SOL-based program)
-const PROGRAM_ID = new PublicKey('GX4gVWUtVgq6XxL8oHYy6psoN9KFdJhwnds2T3NHe5na');
+const PROGRAM_ID = new PublicKey(PROGRAM_ID_STRING);
 
 // PDA Seeds (from the new program)
 const GLOBAL_STATE_SEED = 'global_state';

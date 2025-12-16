@@ -16,4 +16,5 @@ export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
 
 // Solana Configuration
 export const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+export const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID || 'GX4gVWUtVgq6XxL8oHYy6psoN9KFdJhwnds2T3NHe5na';
 

@@ -96,6 +96,7 @@ function ArenaDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [chartView, setChartView] = useState<'standard' | 'hex' | 'spaghetti'>('standard');
   const [volatilityData, setVolatilityData] = useState<Map<number, number>>(new Map());
+  const [startPrices, setStartPrices] = useState<Map<number, number>>(new Map()); // assetIndex -> startPrice
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Track flash effects for participants
@@ -193,7 +194,7 @@ function ArenaDetailPage() {
       return;
     }
     
-    // For active arenas, fetch live volatility data
+    // For active arenas, only fetch startPrice (not volatility - that comes from stream)
     if (arena.status !== ArenaStatus.Active) {
       return;
     }
@@ -201,16 +202,21 @@ function ArenaDetailPage() {
     try {
       const response = await indexerApi.getArenaVolatility(arenaId, '1m');
       
-      // Build a map of assetIndex -> current volatility
-      const volatilityMap = new Map<number, number>();
+      // Build a map of assetIndex -> startPrice
+      // For active arenas, we don't update volatilityData here - it comes from the stream
+      const startPriceMap = new Map<number, number>();
+      
       response.assets.forEach(asset => {
-        if (asset.data.length > 0) {
-          const latestVolatility = asset.data[asset.data.length - 1].volatility;
-          volatilityMap.set(asset.assetIndex, latestVolatility);
+        // Store startPrice for each asset
+        if (asset.startPrice && asset.startPrice > 0) {
+          startPriceMap.set(asset.assetIndex, asset.startPrice);
         }
       });
       
-      setVolatilityData(volatilityMap);
+      // Only update startPrices, not volatilityData (volatility comes from stream)
+      if (startPriceMap.size > 0) {
+        setStartPrices(startPriceMap);
+      }
     } catch (err) {
       console.error('Failed to fetch volatility data:', err);
     }
@@ -220,21 +226,40 @@ function ArenaDetailPage() {
     fetchArena();
   }, [fetchArena]);
 
+  // Fetch startPrice immediately when arena becomes active
+  useEffect(() => {
+    if (arena && arena.status === ArenaStatus.Active && startPrices.size === 0) {
+      console.log('[Arena] Arena became active, fetching startPrice...');
+      fetchVolatilityData();
+    }
+  }, [arena?.status, arena?.arenaId, fetchVolatilityData, startPrices.size]);
+
   useEffect(() => {
     if (arena) {
-      fetchVolatilityData();
+      // Only fetch volatility data if we don't have startPrices yet (for active arenas)
+      // or if arena is ended/canceled (need final volatility)
+      if (arena.status === ArenaStatus.Active && startPrices.size === 0) {
+        fetchVolatilityData();
+      } else if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
+        fetchVolatilityData();
+      }
       
       // Poll every 2s when arena is ending (to detect status change quickly), otherwise every 5s
       const pollInterval = isArenaEnding ? 2000 : 5000;
       
       const interval = setInterval(() => {
         fetchArena(); // Refresh arena data (including status and end prices from Solana)
-        fetchVolatilityData(); // Refresh volatility data
+        // Only fetch volatility data if needed (for ended/canceled or if startPrices missing)
+        if (arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) {
+          fetchVolatilityData(); // Refresh final volatility for ended arenas
+        } else if (arena.status === ArenaStatus.Active && startPrices.size === 0) {
+          fetchVolatilityData(); // Try to get startPrices if we don't have them yet
+        }
       }, pollInterval);
       
       return () => clearInterval(interval);
     }
-  }, [arena, fetchVolatilityData, fetchArena, isArenaEnding]);
+  }, [arena, fetchVolatilityData, fetchArena, isArenaEnding, startPrices.size]);
 
   // Update current time and countdown every second
   useEffect(() => {
@@ -478,6 +503,7 @@ function ArenaDetailPage() {
     const isCurrentUser = publicKey && entry.playerWallet === publicKey.toBase58();
     const playerIsWinner = isWinner(entry);
     const volatilityPercent = getAssetVolatility(entry.assetIndex); // Already in percent from API
+    const assetStartPrice = startPrices.get(entry.assetIndex) ?? null;
     
     // Check if this player's token is currently leading
     const leadingAsset = getLeadingAsset();
@@ -570,22 +596,32 @@ function ArenaDetailPage() {
             
             {/* Volatility (for live/active arenas) */}
             {showVolatility && arena?.status === ArenaStatus.Active && (
-              <div className="text-center px-3">
-                <p className={`font-bold transition-all duration-300 ${
-                  isFlashing 
-                    ? 'text-white text-xl scale-110' 
-                    : `text-lg ${volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'}`
-                }`}>
-                  {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
-                </p>
-                <div className="flex items-center justify-center gap-1">
-                  <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
-                  {isStreamingVolatility && !useIndexerPrices && (
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
-                    </span>
-                  )}
+              <div className="flex gap-4">
+                {/* Start Price */}
+                {assetStartPrice !== null && (
+                  <div className="text-center px-2">
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider mb-1">Start</p>
+                    <p className="text-sm font-medium text-white/70">{formatPrice(assetStartPrice)}</p>
+                  </div>
+                )}
+                {/* Volatility */}
+                <div className="text-center px-3">
+                  <p className={`font-bold transition-all duration-300 ${
+                    isFlashing 
+                      ? 'text-white text-xl scale-110' 
+                      : `text-lg ${volatilityPercent > 0 ? 'text-green-400' : volatilityPercent < 0 ? 'text-red-400' : 'text-white/50'}`
+                  }`}>
+                    {volatilityPercent > 0 ? '+' : ''}{volatilityPercent.toFixed(4)}%
+                  </p>
+                  <div className="flex items-center justify-center gap-1">
+                    <p className="text-white/30 text-[10px] uppercase tracking-wider">Volatility</p>
+                    {isStreamingVolatility && !useIndexerPrices && (
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -876,6 +912,7 @@ function ArenaDetailPage() {
                     refreshInterval={5000}
                     useIndexerPrices={useIndexerPrices}
                     externalVolatilityData={useIndexerPrices ? volatilityData : undefined}
+                    startPrices={startPrices}
                   />
                 </div>
               )}
