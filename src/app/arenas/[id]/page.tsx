@@ -7,7 +7,7 @@ import { useWallet } from '@/context/WalletContext';
 import { usePythStream, useArenaVolatility } from '@/context/PythStreamContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Navbar from '@/components/Navbar';
-// import VolatilityChart from '@/components/VolatilityChart'; // Hidden for now
+import SimpleVolatilityChart, { ChartDataPoint } from '@/components/SimpleVolatilityChart';
 import HexArenaChart from '@/components/HexArenaChart';
 import Image from 'next/image';
 import localFont from 'next/font/local';
@@ -174,14 +174,21 @@ function ArenaDetailPage() {
     fetchArena();
   }, [fetchArena]);
 
-  // Subscribe to Pyth stream when arena is Active
+  // Subscribe to Pyth stream when arena is Active AND all tokens have startPrice
   useEffect(() => {
     if (!arena || !arenaId) return;
     
-    // Only subscribe for Active arenas with assets
+    // Only subscribe for Active arenas with assets where ALL have startPrice
     if (arena.status === ArenaStatus.Active && arena.arenaAssets && arena.arenaAssets.length > 0) {
       // Don't re-subscribe if already subscribed
       if (hasSubscribedRef.current) return;
+      
+      // Check that ALL assets have startPrice
+      const allHaveStartPrices = arena.arenaAssets.every(asset => asset.startPrice && asset.startPrice > 0);
+      if (!allHaveStartPrices) {
+        console.log('[Arena] Waiting for all tokens to have startPrice before subscribing to Pyth');
+        return;
+      }
       
       const tokens = arena.arenaAssets.map(asset => ({
         symbol: asset.assetSymbol,
@@ -189,7 +196,7 @@ function ArenaDetailPage() {
         startPrice: asset.startPrice || 0,
       }));
       
-      console.log('[Arena] Subscribing to Pyth stream with tokens:', tokens.map(t => t.symbol));
+      console.log('[Arena] Subscribing to Pyth stream with tokens:', tokens.map(t => `${t.symbol}@${t.startPrice}`));
       subscribeToArena(arenaId, tokens);
       hasSubscribedRef.current = true;
     }
@@ -339,22 +346,36 @@ function ArenaDetailPage() {
     };
   }, [isPolling, arenaId, wasLiveDuringArena]);
 
-  // Polling effect for Waiting arenas - poll until Active with startPrice
+  // Polling effect for Waiting arenas OR Active arenas missing startPrices
   useEffect(() => {
     if (!arena || !arenaId) return;
     
-    // Start polling when arena is Waiting
-    if (arena.status === ArenaStatus.Waiting && !isWaitingPolling) {
-      console.log('[Arena] Arena is Waiting - starting poll for Active status');
+    // Check if all assets have startPrice
+    const allHaveStartPrices = arena.arenaAssets?.length > 0 && 
+      arena.arenaAssets.every(asset => asset.startPrice && asset.startPrice > 0);
+    
+    // Start polling when arena is Waiting OR Active but missing startPrices
+    if ((arena.status === ArenaStatus.Waiting || 
+        (arena.status === ArenaStatus.Active && !allHaveStartPrices)) && !isWaitingPolling) {
+      const reason = arena.status === ArenaStatus.Waiting 
+        ? 'Arena is Waiting' 
+        : 'Arena is Active but missing startPrices';
+      console.log(`[Arena] ${reason} - starting poll`);
       setIsWaitingPolling(true);
     }
     
-    // Stop polling when arena becomes Active (with startPrice) or ends
-    if (arena.status !== ArenaStatus.Waiting && isWaitingPolling) {
-      console.log('[Arena] Arena no longer Waiting - stopping poll');
+    // Stop polling when arena is Active with ALL startPrices, or ended
+    if (arena.status === ArenaStatus.Active && allHaveStartPrices && isWaitingPolling) {
+      console.log('[Arena] Arena Active with all startPrices - stopping poll');
       setIsWaitingPolling(false);
     }
-  }, [arena?.status, arenaId, isWaitingPolling]);
+    
+    // Stop polling if arena ended/canceled
+    if ((arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) && isWaitingPolling) {
+      console.log('[Arena] Arena ended/canceled - stopping poll');
+      setIsWaitingPolling(false);
+    }
+  }, [arena?.status, arena?.arenaAssets, arenaId, isWaitingPolling]);
 
   // Waiting status polling interval
   useEffect(() => {
@@ -366,28 +387,33 @@ function ArenaDetailPage() {
         if (response.ok) {
           const data = await response.json();
           
-          // Check if arena has become Active with startPrice
-          if (data.status === ArenaStatus.Active) {
-            const hasStartPrices = data.arenaAssets?.some((a: ArenaAsset) => a.startPrice && a.startPrice > 0);
-            if (hasStartPrices) {
-              console.log('[Arena] Arena now Active with startPrices - updating');
-              setArena(data);
-              setIsWaitingPolling(false);
-              
-              // Fetch user profiles for players
-              if (data.playerEntries) {
-                const wallets = data.playerEntries.map((p: PlayerEntry) => p.playerWallet);
-                fetchUserProfiles(wallets);
-              }
-            } else {
-              // Active but no startPrices yet, keep polling
-              console.log('[Arena] Arena Active but no startPrices yet');
+          // Check if arena has startPrice for ALL tokens
+          const allHaveStartPrices = data.arenaAssets?.length > 0 && 
+            data.arenaAssets.every((a: ArenaAsset) => a.startPrice && a.startPrice > 0);
+          
+          if (data.status === ArenaStatus.Active && allHaveStartPrices) {
+            // Arena is Active with ALL startPrices - ready to go!
+            console.log('[Arena] Arena now Active with ALL startPrices - updating');
+            setArena(data);
+            setIsWaitingPolling(false);
+            
+            // Fetch user profiles for players
+            if (data.playerEntries) {
+              const wallets = data.playerEntries.map((p: PlayerEntry) => p.playerWallet);
+              fetchUserProfiles(wallets);
             }
-          } else if (data.status !== ArenaStatus.Waiting) {
-            // Status changed to something other than Active (Ended/Canceled)
+          } else if (data.status === ArenaStatus.Active && !allHaveStartPrices) {
+            // Active but not all tokens have startPrices yet, keep polling
+            const missingCount = data.arenaAssets?.filter((a: ArenaAsset) => !a.startPrice || a.startPrice === 0).length || 0;
+            const missingSymbols = data.arenaAssets?.filter((a: ArenaAsset) => !a.startPrice || a.startPrice === 0).map((a: ArenaAsset) => a.assetSymbol) || [];
+            console.log(`[Arena] Arena Active but ${missingCount} token(s) missing startPrice: ${missingSymbols.join(', ')} - continuing poll`);
+          } else if (data.status === ArenaStatus.Ended || data.status === ArenaStatus.Canceled) {
+            // Arena ended/canceled
+            console.log('[Arena] Arena ended/canceled during poll');
             setArena(data);
             setIsWaitingPolling(false);
           }
+          // If still Waiting, just keep polling (no state update needed)
         }
       } catch (err) {
         console.error('[Arena] Waiting poll error:', err);
@@ -977,6 +1003,27 @@ function ArenaDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Live Volatility Chart - For Active arenas (not during ended transition) */}
+              {arena.status === ArenaStatus.Active && !showArenaEndedBanner && arena.arenaAssets && arena.arenaAssets.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                    <h3 className="text-white/50 text-sm uppercase tracking-wider font-medium">Live Race</h3>
+                  </div>
+                  <SimpleVolatilityChart 
+                    data={arena.arenaAssets.map(asset => ({
+                      symbol: asset.assetSymbol,
+                      assetIndex: asset.assetIndex,
+                      volatility: getAssetVolatility(asset.assetIndex),
+                      startPrice: getAssetStartPrice(asset.assetIndex),
+                      currentPrice: getAssetCurrentPrice(asset.assetIndex),
+                    }))}
+                    height={Math.max(300, 90 + arena.arenaAssets.length * 55)}
+                    isStreaming={isStreaming}
+                  />
+                </div>
+              )}
 
               {/* Chart Section - HexArenaChart for Ended/Canceled arenas */}
               {(arena.status === ArenaStatus.Ended || arena.status === ArenaStatus.Canceled) && (
